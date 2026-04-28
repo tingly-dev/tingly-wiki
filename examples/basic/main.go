@@ -18,9 +18,20 @@ func main() {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	useMock := apiKey == ""
 
+	// Get custom configuration from environment
+	baseURL := os.Getenv("OPENAI_BASE_URL")
+	model := os.Getenv("OPENAI_MODEL")
+	if model == "" {
+		model = "gpt-4o-mini" // default model
+	}
+
 	if useMock {
 		fmt.Println("No OPENAI_API_KEY found, using Mock LLM...")
 		fmt.Println("Set OPENAI_API_KEY to use real OpenAI API")
+		fmt.Println()
+		fmt.Println("Optional environment variables:")
+		fmt.Println("  OPENAI_BASE_URL - Custom base URL for OpenAI-compatible API")
+		fmt.Println("  OPENAI_MODEL    - Model to use (default: gpt-4o-mini)")
 		fmt.Println()
 	}
 
@@ -31,8 +42,9 @@ func main() {
 	} else {
 		var err error
 		llmInstance, err = llm.NewOpenAIAdapter(&llm.OpenAIConfig{
-			APIKey: apiKey,
-			Model:  "gpt-4o-mini",
+			APIKey:  apiKey,
+			Model:   model,
+			BaseURL: baseURL,
 		})
 		if err != nil {
 			log.Fatal(err)
