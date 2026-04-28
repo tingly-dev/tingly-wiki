@@ -2,7 +2,7 @@
 
 This directory contains examples demonstrating how to use the tingly-wiki module.
 
-## Inspiration
+## Acknowledgments
 
 This project is inspired by the ideas discussed in [let me wikipedia this for you](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) by Andrej Karpathy. The concept of using LLMs as "programmers" that maintain and grow a persistent knowledge base is directly influenced by those insights.
 
