@@ -59,3 +59,26 @@ tasks:
       ./bin/basic
     env:
       WIKI_DIR: "{{.WIKI_DIR}}"
+
+  # CLI tasks
+  cli:build:
+    desc: Build the CLI binary
+    cmd: go build -o bin/wiki ./cmd/wiki
+
+  cli:
+    desc: Run CLI (builds first if needed)
+    cmd: |
+      if [ ! -f bin/wiki ]; then
+        go build -o bin/wiki ./cmd/wiki
+      fi
+      ./bin/wiki "{{.CLI_ARGS}}"
+
+  cli:ingest:
+    desc: Ingest content via CLI
+    cmd: ./bin/wiki --wiki-dir "{{.WIKI_DIR}}" --open-ai-key "{{.OPENAI_API_KEY}}" --open-ai-base-url "{{.OPENAI_BASE_URL}}" --open-ai-model "{{.OPENAI_MODEL}}" ingest "{{.PATH}}"
+    vars:
+      PATH: "{{.PATH | default \"-\"}}"
+
+  cli:ask:
+    desc: Ask wiki a question via CLI
+    cmd: ./bin/wiki --wiki-dir "{{.WIKI_DIR}}" --open-ai-key "{{.OPENAI_API_KEY}}" --open-ai-base-url "{{.OPENAI_BASE_URL}}" --open-ai-model "{{.OPENAI_MODEL}}" ask "{{.QUESTION}}"
