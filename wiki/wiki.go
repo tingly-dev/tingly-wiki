@@ -90,6 +90,9 @@ type Wiki interface {
 	// Query answers questions using wiki content
 	Query(ctx context.Context, query string, opts *QueryOptions) (*QueryResult, error)
 
+	// RebuildIndex rebuilds the search index from existing pages
+	RebuildIndex(ctx context.Context) error
+
 	// Lint performs health checks on the wiki
 	Lint(ctx context.Context, opts *LintOptions) (*llm.LintReport, error)
 

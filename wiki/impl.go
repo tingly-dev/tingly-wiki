@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,11 +17,13 @@ import (
 
 // WikiImpl is the concrete implementation of Wiki
 type WikiImpl struct {
-	config  *config.Config
-	storage storage.Storage
-	llm     llm.LLM
-	index   index.Index
-	layout  *config.LayoutConfig
+	config      *config.Config
+	storage     storage.Storage
+	llm         llm.LLM
+	index       index.Index
+	layout      *config.LayoutConfig
+	indexLoaded bool
+	indexMu     sync.Mutex
 }
 
 // New creates a new Wiki instance
@@ -425,6 +428,49 @@ func (w *WikiImpl) ListPages(ctx context.Context, opts *ListOptions) ([]*schema.
 		storageOpts.Tags = opts.Tags
 	}
 	return w.storage.ListPages(ctx, storageOpts)
+}
+
+// ensureIndexLoaded ensures the index is loaded (lazy initialization)
+func (w *WikiImpl) ensureIndexLoaded(ctx context.Context) error {
+	w.indexMu.Lock()
+	defer w.indexMu.Unlock()
+
+	if w.indexLoaded {
+		return nil
+	}
+
+	// List all pages
+	pages, err := w.storage.ListPages(ctx, &storage.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list pages: %w", err)
+	}
+
+	// Index each page
+	for _, page := range pages {
+		if err := w.index.Index(ctx, page); err != nil {
+			return fmt.Errorf("failed to index page %s: %w", page.Path, err)
+		}
+	}
+
+	w.indexLoaded = true
+	return nil
+}
+
+// RebuildIndex rebuilds the search index from existing pages
+func (w *WikiImpl) RebuildIndex(ctx context.Context) error {
+	w.indexMu.Lock()
+	defer w.indexMu.Unlock()
+
+	// Clear existing index
+	if err := w.index.Close(); err != nil {
+		return fmt.Errorf("failed to clear index: %w", err)
+	}
+
+	// Reset loaded flag
+	w.indexLoaded = false
+
+	// Reload index
+	return w.ensureIndexLoaded(ctx)
 }
 
 // Close releases resources

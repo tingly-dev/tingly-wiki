@@ -15,6 +15,11 @@ func (w *WikiImpl) Query(ctx context.Context, query string, opts *QueryOptions) 
 		opts = &QueryOptions{}
 	}
 
+	// Ensure index is loaded (lazy initialization)
+	if err := w.ensureIndexLoaded(ctx); err != nil {
+		return nil, fmt.Errorf("failed to load index: %w", err)
+	}
+
 	// Search index for relevant pages
 	searchOpts := &index.SearchOptions{
 		Limit: opts.Limit,
