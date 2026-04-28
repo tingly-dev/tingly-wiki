@@ -1,0 +1,61 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GOWORK: off
+  WIKI_DIR: "{{.WIKI_DIR | default \".wiki\"}}"
+
+tasks:
+  default:
+    desc: Run the basic demo
+    cmd: go run examples/basic/main.go
+    env:
+      WIKI_DIR: "{{.WIKI_DIR}}"
+
+  demo:
+    desc: Run the basic demo
+    cmd: go run examples/basic/main.go
+    env:
+      WIKI_DIR: "{{.WIKI_DIR}}"
+
+  demo:mock:
+    desc: Run demo with Mock LLM (no API key required)
+    cmd: go run examples/basic/main.go
+    env:
+      OPENAI_API_KEY: ""
+      WIKI_DIR: "{{.WIKI_DIR}}"
+
+  demo:openai:
+    desc: Run demo with OpenAI (requires OPENAI_API_KEY)
+    cmd: go run examples/basic/main.go
+    env:
+      WIKI_DIR: "{{.WIKI_DIR}}"
+      OPENAI_API_KEY: "{{.OPENAI_API_KEY}}"
+      OPENAI_MODEL: "{{.OPENAI_MODEL | default \"gpt-4o-mini\"}}"
+      OPENAI_BASE_URL: "{{.OPENAI_BASE_URL | default \"\"}}"
+
+  demo:custom:
+    desc: Run demo with custom OpenAI-compatible endpoint
+    cmd: go run examples/basic/main.go
+    env:
+      WIKI_DIR: "{{.WIKI_DIR}}"
+      OPENAI_API_KEY: "{{.CUSTOM_API_KEY | default \"tingly-box-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnRfaWQiOiJ0ZXN0LWNsaWVudCIsImV4cCI6MTc2NjQwMzQwNSwiaWF0IjoxNzY2MzE3MDA1fQ.AHtmsHxGGJ0jtzvrTZMHC3kfl3Os94HOhMA-zXFtHXQ\"}}"
+      OPENAI_BASE_URL: "{{.CUSTOM_BASE_URL | default \"http://localhost:12580/tingly/openai\"}}"
+      OPENAI_MODEL: "{{.CUSTOM_MODEL | default \"tingly-ds\"}}"
+
+  clean:
+    desc: Remove the wiki directory
+    cmd: rm -rf "{{.WIKI_DIR}}"
+
+  build:
+    desc: Build the basic demo
+    cmd: go build -o bin/basic examples/basic/main.go
+
+  run:
+    desc: Build and run the basic demo
+    cmd: |
+      go build -o bin/basic examples/basic/main.go
+      ./bin/basic
+    env:
+      WIKI_DIR: "{{.WIKI_DIR}}"
