@@ -25,14 +25,27 @@ func main() {
 		model = "gpt-4o-mini" // default model
 	}
 
+	// Wiki output directory (default: .wiki in current directory)
+	wikiDir := os.Getenv("WIKI_DIR")
+	if wikiDir == "" {
+		wikiDir = ".wiki"
+	}
+
 	if useMock {
 		fmt.Println("No OPENAI_API_KEY found, using Mock LLM...")
 		fmt.Println("Set OPENAI_API_KEY to use real OpenAI API")
 		fmt.Println()
 		fmt.Println("Optional environment variables:")
+		fmt.Println("  WIKI_DIR       - Wiki output directory (default: .wiki)")
 		fmt.Println("  OPENAI_BASE_URL - Custom base URL for OpenAI-compatible API")
 		fmt.Println("  OPENAI_MODEL    - Model to use (default: gpt-4o-mini)")
 		fmt.Println()
+	} else {
+		fmt.Printf("Using model: %s\n", model)
+		if baseURL != "" {
+			fmt.Printf("Base URL: %s\n", baseURL)
+		}
+		fmt.Printf("Wiki directory: %s\n\n", wikiDir)
 	}
 
 	// Create wiki configuration
@@ -51,8 +64,14 @@ func main() {
 		}
 	}
 
+	// Create markdown storage for persistent wiki
+	store, err := storage.NewMarkdownStorage(wikiDir, config.DefaultLayout())
+	if err != nil {
+		log.Fatalf("Failed to create storage: %v", err)
+	}
+
 	cfg := &config.Config{
-		Storage: storage.NewMemoryStorage(),
+		Storage: store,
 		LLM:     llmInstance,
 		Layout:  config.DefaultLayout(),
 	}

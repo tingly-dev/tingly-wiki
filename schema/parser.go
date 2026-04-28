@@ -74,7 +74,7 @@ func (p *Parser) Serialize(page *Page) (string, error) {
 		return "", err
 	}
 	sb.WriteString(fmYAML)
-	sb.WriteString("---\n\n")
+	sb.WriteString("\n---\n\n")  // Add newline before closing delimiter
 
 	// Write content
 	sb.WriteString(page.Content)

@@ -34,14 +34,12 @@ func (w *WikiImpl) Query(ctx context.Context, query string, opts *QueryOptions) 
 	pagesRead := []string{}
 
 	for _, item := range searchResult.Results {
-		if item.Page.Path == "" {
-			// Load full page
-			page, err := w.storage.ReadPage(ctx, item.Page.Path)
-			if err != nil {
-				continue
-			}
-			item.Page = page
+		// Load full page (index only has path, need to load full content)
+		page, err := w.storage.ReadPage(ctx, item.Page.Path)
+		if err != nil {
+			continue
 		}
+		item.Page = page
 
 		// Build context string
 		contextStr := fmt.Sprintf("# %s\n\n%s", item.Page.Title, item.Page.Content)
