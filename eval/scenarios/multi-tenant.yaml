@@ -1,0 +1,59 @@
+name: multi-tenant
+description: |
+  Tests strict tenant isolation. Two tenants store conflicting preferences
+  under the same logical title. Queries scoped to one tenant must never
+  return the other tenant's pages.
+
+config:
+  use_vector: true
+
+setup:
+  - op: store
+    type: preference
+    title: ui-mode
+    content: "loves dark mode with deep navy accents"
+    importance: 0.8
+    tenant: user-A
+
+  - op: store
+    type: preference
+    title: ui-mode
+    content: "prefers light mode with bright pastel theme"
+    importance: 0.8
+    tenant: user-B
+
+  - op: store
+    type: memory
+    title: yesterday-meeting
+    content: "had a planning session about migrations"
+    importance: 0.6
+    tenant: user-A
+
+  - op: store
+    type: memory
+    title: yesterday-meeting
+    content: "discussed customer onboarding"
+    importance: 0.6
+    tenant: user-B
+
+queries:
+  - query: "user UI mode preference"
+    tenant: user-A
+    types: [preference]
+    k: 3
+    relevant_paths:
+      - tenants/user-A/preferences/ui-mode.md
+
+  - query: "user UI mode preference"
+    tenant: user-B
+    types: [preference]
+    k: 3
+    relevant_paths:
+      - tenants/user-B/preferences/ui-mode.md
+
+  - query: "what was the meeting about"
+    tenant: user-A
+    types: [memory]
+    k: 3
+    relevant_paths:
+      - tenants/user-A/memories/yesterday-meeting.md

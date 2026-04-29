@@ -25,6 +25,7 @@ type CLI struct {
 	// Commands
 	Ingest IngestCmd `cmd:"" help:"Ingest content from stdin or file"`
 	Ask    AskCmd    `cmd:"" help:"Ask the wiki a question"`
+	Eval   EvalCmd   `cmd:"" help:"Run memory quality evaluation scenarios"`
 
 	// IO for testing
 	stdout io.Writer

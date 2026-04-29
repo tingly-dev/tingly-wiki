@@ -1,0 +1,45 @@
+name: preference-recall
+description: |
+  Tests semantic recall on the preference layer. Stores three user preferences
+  with overlapping vocabulary and probes them with paraphrased queries.
+  Vector retrieval should rank the right page first even when keyword
+  overlap is partial.
+
+config:
+  use_vector: true
+
+setup:
+  - op: store
+    type: preference
+    title: food-preference
+    content: "User loves spicy Sichuan cuisine and Korean barbecue"
+    importance: 0.9
+  - op: store
+    type: preference
+    title: ui-preference
+    content: "User prefers dark mode UI with high contrast"
+    importance: 0.8
+  - op: store
+    type: preference
+    title: language-preference
+    content: "User communicates in English; sometimes Mandarin Chinese"
+    importance: 0.7
+
+queries:
+  - query: "what spicy food does the user like?"
+    types: [preference]
+    k: 3
+    relevant_paths:
+      - preferences/food-preference.md
+
+  - query: "any UI theme settings?"
+    types: [preference]
+    k: 3
+    relevant_paths:
+      - preferences/ui-preference.md
+
+  - query: "preferred language for chat"
+    types: [preference]
+    k: 3
+    relevant_paths:
+      - preferences/language-preference.md
