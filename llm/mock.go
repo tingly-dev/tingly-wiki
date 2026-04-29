@@ -22,6 +22,15 @@ type MockLLM struct {
 
 	// ConsolidateFunc is the mock consolidate function
 	ConsolidateFunc func(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error)
+
+	// EmbedFunc is the mock embed function
+	EmbedFunc func(ctx context.Context, text string) ([]float32, error)
+
+	// ExtractMemoryFactsFunc is the mock fact extraction function
+	ExtractMemoryFactsFunc func(ctx context.Context, content string, pageType schema.PageType) ([]schema.MemoryFact, error)
+
+	// RateImportanceFunc is the mock importance rating function
+	RateImportanceFunc func(ctx context.Context, content string) (float64, error)
 }
 
 // NewMockLLM creates a new mock LLM with default behavior
@@ -100,7 +109,6 @@ func (m *MockLLM) Consolidate(ctx context.Context, pages []*schema.Page) (*Conso
 		return m.ConsolidateFunc(ctx, pages)
 	}
 
-	// Default: join titles as merged title, concatenate content
 	title := "Consolidated"
 	if len(pages) > 0 {
 		title = pages[0].Title
@@ -110,4 +118,38 @@ func (m *MockLLM) Consolidate(ctx context.Context, pages []*schema.Page) (*Conso
 		SuggestedTitle:  title,
 		ImportanceScore: 0.6,
 	}, nil
+}
+
+// Embed calls the mock embed function; defaults to a deterministic 4-dim stub.
+func (m *MockLLM) Embed(ctx context.Context, text string) ([]float32, error) {
+	if m.EmbedFunc != nil {
+		return m.EmbedFunc(ctx, text)
+	}
+	// Stable stub: use first 4 chars of text as a tiny "embedding"
+	vec := make([]float32, 4)
+	for i, r := range []rune(text) {
+		if i >= 4 {
+			break
+		}
+		vec[i] = float32(r) / 65536.0
+	}
+	return vec, nil
+}
+
+// ExtractMemoryFacts calls the mock fact extraction function.
+func (m *MockLLM) ExtractMemoryFacts(ctx context.Context, content string, pageType schema.PageType) ([]schema.MemoryFact, error) {
+	if m.ExtractMemoryFactsFunc != nil {
+		return m.ExtractMemoryFactsFunc(ctx, content, pageType)
+	}
+	return []schema.MemoryFact{
+		{Subject: "user", Predicate: "noted", Object: content, Confidence: 0.7},
+	}, nil
+}
+
+// RateImportance calls the mock importance rating function.
+func (m *MockLLM) RateImportance(ctx context.Context, content string) (float64, error) {
+	if m.RateImportanceFunc != nil {
+		return m.RateImportanceFunc(ctx, content)
+	}
+	return 0.5, nil
 }

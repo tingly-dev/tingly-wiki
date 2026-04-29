@@ -20,6 +20,8 @@ var knownFrontmatterFields = map[string]bool{
 	"memory_tier": true,
 	// provenance
 	"tenant_id": true, "agent_id": true,
+	// atomic facts
+	"facts": true,
 }
 
 // parseFrontmatter parses YAML frontmatter
@@ -71,6 +73,11 @@ func parseFrontmatter(content string) (*Frontmatter, error) {
 	}
 	if v, ok := raw["agent_id"].(string); ok {
 		fm.AgentID = v
+	}
+
+	// Atomic facts
+	if v, ok := raw["facts"]; ok {
+		fm.Facts = parseMemoryFacts(v)
 	}
 
 	// Remaining unknown fields → Extra
@@ -128,6 +135,11 @@ func serializeFrontmatter(fm *Frontmatter) (string, error) {
 		raw["agent_id"] = fm.AgentID
 	}
 
+	// Atomic facts
+	if len(fm.Facts) > 0 {
+		raw["facts"] = serializeMemoryFacts(fm.Facts)
+	}
+
 	// Extra / custom fields
 	for key, value := range fm.Extra {
 		raw[key] = value
@@ -159,6 +171,68 @@ func parseStringSlice(v interface{}) []string {
 		return tv
 	}
 	return nil
+}
+
+// parseMemoryFacts decodes a YAML-decoded []interface{} into []MemoryFact
+func parseMemoryFacts(raw interface{}) []MemoryFact {
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]MemoryFact, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		f := MemoryFact{
+			Subject:    toString(m["subject"]),
+			Predicate:  toString(m["predicate"]),
+			Object:     toString(m["object"]),
+			Confidence: toFloat64(m["confidence"]),
+		}
+		if s, ok := m["event_time"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				f.EventTime = &t
+			}
+		}
+		if s, ok := m["invalidated_at"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				f.InvalidatedAt = &t
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// serializeMemoryFacts converts []MemoryFact to a form YAML can encode
+func serializeMemoryFacts(facts []MemoryFact) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(facts))
+	for _, f := range facts {
+		m := map[string]interface{}{
+			"subject":    f.Subject,
+			"predicate":  f.Predicate,
+			"object":     f.Object,
+			"confidence": f.Confidence,
+		}
+		if f.EventTime != nil {
+			m["event_time"] = f.EventTime.UTC().Format(time.RFC3339)
+		}
+		if f.InvalidatedAt != nil {
+			m["invalidated_at"] = f.InvalidatedAt.UTC().Format(time.RFC3339)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// toString safely converts an interface{} to string
+func toString(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // toFloat64 converts numeric YAML values to float64

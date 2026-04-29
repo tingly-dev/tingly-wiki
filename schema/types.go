@@ -90,8 +90,34 @@ type Frontmatter struct {
 	// AgentID identifies which agent wrote this page.
 	AgentID string `json:"agent_id,omitempty" yaml:"agent_id,omitempty"`
 
+	// Facts are atomic (subject, predicate, object) triples extracted on write.
+	// Current facts have InvalidatedAt == nil; superseded facts carry a timestamp.
+	Facts []MemoryFact `json:"facts,omitempty" yaml:"facts,omitempty"`
+
 	// Custom fields
 	Extra map[string]interface{} `json:"-" yaml:"-"`
+}
+
+// MemoryFact is an atomic fact extracted from memory content at write time.
+type MemoryFact struct {
+	// Subject is what the fact is about (e.g. "user", entity name)
+	Subject string `json:"subject" yaml:"subject"`
+
+	// Predicate is the relationship type (e.g. "prefers", "lives_in", "uses")
+	Predicate string `json:"predicate" yaml:"predicate"`
+
+	// Object is the fact's value (e.g. "dark mode", "San Francisco")
+	Object string `json:"object" yaml:"object"`
+
+	// Confidence is the extraction confidence in [0, 1]
+	Confidence float64 `json:"confidence,omitempty" yaml:"confidence,omitempty"`
+
+	// EventTime is when the fact occurred (optional; distinct from ingestion time)
+	EventTime *time.Time `json:"event_time,omitempty" yaml:"event_time,omitempty"`
+
+	// InvalidatedAt is when this fact was superseded by a newer conflicting fact.
+	// nil means the fact is currently valid.
+	InvalidatedAt *time.Time `json:"invalidated_at,omitempty" yaml:"invalidated_at,omitempty"`
 }
 
 // SourceType is the type of source

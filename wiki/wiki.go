@@ -164,6 +164,15 @@ type RecallOptions struct {
 
 	// Limit is max results (0 = default 10)
 	Limit int
+
+	// IncludeInvalidated, when true, returns facts whose InvalidatedAt is set.
+	// Useful for temporal queries ("what did the user think before?").
+	// Default false = only current (valid) facts are visible.
+	IncludeInvalidated bool
+
+	// Strategies overrides the per-layer retrieval weight coefficients.
+	// Keys are PageType constants; absent types fall back to defaults.
+	Strategies map[schema.PageType]LayerStrategy
 }
 
 // RecallResult is returned by RecallMemory

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tingly-dev/tingly-wiki/schema"
 )
@@ -23,7 +24,21 @@ type LLM interface {
 	// Consolidate merges a group of related pages into a single coherent page.
 	// It returns the merged content, a suggested title, and which pages should be absorbed.
 	Consolidate(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error)
+
+	// Embed generates a dense vector representation of text for semantic retrieval.
+	// Returns ErrEmbeddingNotSupported if the adapter does not support embeddings.
+	Embed(ctx context.Context, text string) ([]float32, error)
+
+	// ExtractMemoryFacts extracts atomic (subject, predicate, object) facts from content.
+	// pageType is a hint that lets the LLM calibrate extraction style.
+	ExtractMemoryFacts(ctx context.Context, content string, pageType schema.PageType) ([]schema.MemoryFact, error)
+
+	// RateImportance asks the LLM how important content is for future recall (0.0–1.0).
+	RateImportance(ctx context.Context, content string) (float64, error)
 }
+
+// ErrEmbeddingNotSupported is returned by LLM adapters that do not support embeddings.
+var ErrEmbeddingNotSupported = fmt.Errorf("embedding not supported by this LLM adapter")
 
 // ConsolidateResult is returned by LLM.Consolidate
 type ConsolidateResult struct {

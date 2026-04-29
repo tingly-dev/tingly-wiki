@@ -12,50 +12,165 @@ import (
 	"github.com/tingly-dev/tingly-wiki/storage"
 )
 
+// canonicalText returns a compact, LLM-embeddable representation of a page.
+// It includes the title, active facts, and the first 512 bytes of content.
+func canonicalText(page *schema.Page) string {
+	var sb strings.Builder
+	sb.WriteString(page.Title)
+	for _, f := range page.Facts {
+		if f.InvalidatedAt == nil {
+			sb.WriteString(". ")
+			sb.WriteString(f.Subject)
+			sb.WriteString(" ")
+			sb.WriteString(f.Predicate)
+			sb.WriteString(" ")
+			sb.WriteString(f.Object)
+		}
+	}
+	if page.Content != "" {
+		sb.WriteString(". ")
+		content := page.Content
+		if len(content) > 512 {
+			content = content[:512]
+		}
+		sb.WriteString(content)
+	}
+	return sb.String()
+}
+
+// mergeMemoryFacts combines facts from an existing page with newly extracted facts.
+// Where a new fact shares (Subject, Predicate) with an existing valid fact but has a
+// different Object, the existing fact is marked InvalidatedAt = now (bi-temporal model).
+func mergeMemoryFacts(existing *schema.Page, newFacts []schema.MemoryFact, now time.Time) []schema.MemoryFact {
+	if existing == nil || len(existing.Facts) == 0 {
+		return newFacts
+	}
+
+	merged := make([]schema.MemoryFact, 0, len(existing.Facts)+len(newFacts))
+
+	// Build a lookup of incoming (subject, predicate) → object
+	type key struct{ s, p string }
+	incoming := make(map[key]string, len(newFacts))
+	for _, f := range newFacts {
+		incoming[key{f.Subject, f.Predicate}] = f.Object
+	}
+
+	// Carry forward old facts; invalidate those that conflict with new ones
+	for _, f := range existing.Facts {
+		if f.InvalidatedAt != nil {
+			merged = append(merged, f) // already invalidated, keep as history
+			continue
+		}
+		k := key{f.Subject, f.Predicate}
+		if newObj, ok := incoming[k]; ok && newObj != f.Object {
+			// Conflict: mark this fact as superseded
+			t := now
+			f.InvalidatedAt = &t
+		}
+		merged = append(merged, f)
+	}
+
+	// Append the new facts (they are always valid at this point)
+	merged = append(merged, newFacts...)
+	return merged
+}
+
+// withValidFacts returns a shallow copy of page with only non-invalidated facts.
+func withValidFacts(page *schema.Page) *schema.Page {
+	if len(page.Facts) == 0 {
+		return page
+	}
+	valid := make([]schema.MemoryFact, 0, len(page.Facts))
+	for _, f := range page.Facts {
+		if f.InvalidatedAt == nil {
+			valid = append(valid, f)
+		}
+	}
+	// Shallow copy to avoid mutating the cached page
+	copy := *page
+	copy.Facts = valid
+	return &copy
+}
+
 // MemoryWikiImpl wraps WikiImpl and satisfies the MemoryWiki interface.
 // All existing Wiki methods are delegated to the embedded *WikiImpl unchanged.
 type MemoryWikiImpl struct {
 	*WikiImpl
-	scorer *ImportanceScorer
+	scorer    *ImportanceScorer
+	vector    index.VectorIndex  // optional; nil → keyword-only recall
+	retriever *HybridRetriever
 }
 
 // NewMemoryWiki creates a MemoryWiki-capable wiki instance.
-// The cfg argument is identical to what wiki.New() accepts.
+// The cfg argument is identical to what wiki.New() accepts, with the optional
+// cfg.VectorIndex field providing semantic retrieval capability.
 func NewMemoryWiki(cfg *config.Config) (*MemoryWikiImpl, error) {
 	base, err := New(cfg)
 	if err != nil {
 		return nil, err
 	}
+
+	scorer := DefaultImportanceScorer()
+
+	var vec index.VectorIndex
+	if cfg.VectorIndex != nil {
+		if vi, ok := cfg.VectorIndex.(index.VectorIndex); ok {
+			vec = vi
+		}
+	}
+
+	retriever := NewHybridRetriever(base.index, vec, scorer, base.llm)
+
 	return &MemoryWikiImpl{
-		WikiImpl: base,
-		scorer:   DefaultImportanceScorer(),
+		WikiImpl:  base,
+		scorer:    scorer,
+		vector:    vec,
+		retriever: retriever,
 	}, nil
 }
 
 // ---- MemoryWiki implementation ----
 
 // StoreMemory writes a memory page, creating or updating by title.
+// It automatically:
+//   - rates importance via LLM when the caller supplies 0
+//   - extracts atomic facts from the content
+//   - invalidates previously valid facts that conflict with new ones
+//   - indexes the page in both the keyword and (if configured) vector index
 func (m *MemoryWikiImpl) StoreMemory(ctx context.Context, req *StoreMemoryRequest) (*StoreMemoryResult, error) {
 	if req.Title == "" {
 		return nil, fmt.Errorf("StoreMemory: Title is required")
 	}
 
 	path := m.pathForType(req.Type, req.Title)
+	now := time.Now()
+
+	// ── Importance ────────────────────────────────────────────────────────────
 	importance := req.Importance
 	if importance == 0 {
-		importance = 0.5
+		if rated, err := m.llm.RateImportance(ctx, req.Content); err == nil {
+			importance = rated
+		} else {
+			importance = 0.5
+		}
 	}
 
-	now := time.Now()
+	// ── Fact extraction ───────────────────────────────────────────────────────
+	newFacts, _ := m.llm.ExtractMemoryFacts(ctx, req.Content, req.Type) // best-effort
+
+	// ── TTL ───────────────────────────────────────────────────────────────────
 	var expiresAt *time.Time
 	if req.TTL != nil {
 		t := now.Add(*req.TTL)
 		expiresAt = &t
 	}
 
-	// Check if the page already exists (update vs create)
+	// ── Existing page (update vs create) ─────────────────────────────────────
 	existing, _ := m.storage.ReadPage(ctx, path)
 	created := existing == nil
+
+	// Merge facts: invalidate old facts that conflict with incoming ones
+	mergedFacts := mergeMemoryFacts(existing, newFacts, now)
 
 	page := &schema.Page{
 		Path: path,
@@ -68,83 +183,80 @@ func (m *MemoryWikiImpl) StoreMemory(ctx context.Context, req *StoreMemoryReques
 			MemoryTier: schema.MemoryTierHot,
 			TenantID:   req.TenantID,
 			AgentID:    req.AgentID,
+			Facts:      mergedFacts,
 		},
 		Content:   req.Content,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-
 	if !created {
-		// Preserve creation time and access stats when updating
 		page.CreatedAt = existing.CreatedAt
 		page.AccessCount = existing.AccessCount
 		page.LastAccessedAt = existing.LastAccessedAt
 	}
 
+	// ── Persist ───────────────────────────────────────────────────────────────
 	if err := m.storage.WritePage(ctx, page); err != nil {
 		return nil, fmt.Errorf("StoreMemory: write failed: %w", err)
 	}
-
-	// Index the new/updated page
 	if err := m.index.Index(ctx, page); err != nil {
 		return nil, fmt.Errorf("StoreMemory: index failed: %w", err)
+	}
+
+	// ── Vector index (best-effort) ────────────────────────────────────────────
+	if m.vector != nil {
+		if vec, err := m.llm.Embed(ctx, canonicalText(page)); err == nil && len(vec) > 0 {
+			_ = m.vector.IndexVector(ctx, path, vec, &index.VectorMeta{
+				Type:      page.Type,
+				TenantID:  page.TenantID,
+				ExpiresAt: page.ExpiresAt,
+			})
+		}
 	}
 
 	return &StoreMemoryResult{Path: path, Created: created}, nil
 }
 
-// RecallMemory retrieves memory pages matching the query.
+// RecallMemory retrieves memory pages matching the query using the HybridRetriever.
 // Each hit increments the page's AccessCount and updates LastAccessedAt.
+// By default, invalidated facts are filtered from the returned pages; set
+// opts.IncludeInvalidated = true to include historical facts.
 func (m *MemoryWikiImpl) RecallMemory(ctx context.Context, query string, opts *RecallOptions) (*RecallResult, error) {
 	if opts == nil {
 		opts = &RecallOptions{}
 	}
-	limit := opts.Limit
-	if limit == 0 {
-		limit = 10
+
+	// Apply caller-supplied strategy overrides to the retriever
+	if len(opts.Strategies) > 0 {
+		for pt, s := range opts.Strategies {
+			m.retriever.strategies[pt] = s
+		}
 	}
 
-	searchOpts := &index.SearchOptions{
-		Limit:          limit,
-		TenantID:       opts.TenantID,
-		MinImportance:  opts.MinImportance,
-		MemoryTier:     opts.MemoryTier,
-		ExcludeExpired: true,
-	}
-
-	// Type filter: use first type if exactly one specified; otherwise filter post-search
-	if len(opts.Types) == 1 {
-		searchOpts.Type = &opts.Types[0]
-	}
-
-	sr, err := m.index.Search(ctx, query, searchOpts)
+	scored, err := m.retriever.Recall(ctx, query, opts, m.storage)
 	if err != nil {
-		return nil, fmt.Errorf("RecallMemory: search failed: %w", err)
+		return nil, fmt.Errorf("RecallMemory: %w", err)
 	}
 
-	var pages []*schema.Page
-	for _, item := range sr.Results {
-		page, err := m.storage.ReadPage(ctx, item.Page.Path)
-		if err != nil {
-			continue
-		}
+	now := time.Now()
+	pages := make([]*schema.Page, 0, len(scored))
+	for _, s := range scored {
+		page := s.Page
 
-		// Multi-type filter (when more than one type requested)
-		if len(opts.Types) > 1 && !containsType(opts.Types, page.Type) {
-			continue
+		// Filter invalidated facts unless the caller explicitly wants history
+		if !opts.IncludeInvalidated {
+			page = withValidFacts(page)
 		}
-
 		pages = append(pages, page)
 
-		// Write-through: update access tracking
-		now := time.Now()
+		// Write-through: update access tracking (best-effort)
 		page.AccessCount++
 		page.LastAccessedAt = &now
 		page.MemoryTier = m.scorer.Tier(page)
-		_ = m.storage.WritePage(ctx, page) // best-effort, ignore error
+		_ = m.storage.WritePage(ctx, page)
 	}
 
-	return &RecallResult{Pages: pages, Total: sr.Total}, nil
+	return &RecallResult{Pages: pages, Total: len(scored)}, nil
 }
 
 // AppendAuditLog appends an entry to the date-scoped audit log file.

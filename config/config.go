@@ -14,6 +14,10 @@ type Config struct {
 	// Index backend to use
 	Index interface{}
 
+	// VectorIndex is an optional dense-vector index for semantic retrieval.
+	// When nil, RecallMemory degrades to keyword-only search.
+	VectorIndex interface{}
+
 	// Concurrency settings
 	MaxConcurrentIngests int
 }
