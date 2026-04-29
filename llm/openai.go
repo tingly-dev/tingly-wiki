@@ -195,3 +195,47 @@ func (o *OpenAIAdapter) Lint(ctx context.Context, pages []*schema.Page) (*LintRe
 
 	return &report, nil
 }
+
+// Consolidate merges related pages into a single coherent page using LLM
+func (o *OpenAIAdapter) Consolidate(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error) {
+	content := buildPagesText(pages)
+	prompt := PromptConsolidate + "\n\nPages to consolidate:\n\n" + content
+
+	messages := []openai.ChatCompletionMessageParamUnion{
+		{
+			OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfString: openai.String(prompt),
+				},
+			},
+		},
+	}
+
+	resp, err := o.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: messages,
+		Model:    openai.ChatModel(o.model),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call OpenAI for consolidation: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no response from OpenAI")
+	}
+
+	var result ConsolidateResult
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse consolidation response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// buildPagesText formats pages for LLM prompts
+func buildPagesText(pages []*schema.Page) string {
+	var out string
+	for _, p := range pages {
+		out += fmt.Sprintf("## %s\n%s\n\n", p.Title, p.Content)
+	}
+	return out
+}

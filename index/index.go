@@ -19,6 +19,20 @@ type SearchOptions struct {
 
 	// MinScore is minimum relevance score
 	MinScore float64
+
+	// Memory-scoping filters
+
+	// TenantID restricts results to a specific tenant namespace (empty = all)
+	TenantID string
+
+	// MinImportance filters out pages below this importance threshold (0 = no filter)
+	MinImportance float64
+
+	// MemoryTier restricts results to a specific tier (empty = all)
+	MemoryTier schema.MemoryTier
+
+	// ExcludeExpired skips pages whose ExpiresAt is in the past
+	ExcludeExpired bool
 }
 
 // SearchResult is the result of a search

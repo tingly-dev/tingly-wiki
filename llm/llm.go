@@ -19,6 +19,25 @@ type LLM interface {
 
 	// Lint performs health analysis on pages
 	Lint(ctx context.Context, pages []*schema.Page) (*LintReport, error)
+
+	// Consolidate merges a group of related pages into a single coherent page.
+	// It returns the merged content, a suggested title, and which pages should be absorbed.
+	Consolidate(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error)
+}
+
+// ConsolidateResult is returned by LLM.Consolidate
+type ConsolidateResult struct {
+	// MergedContent is the unified markdown body
+	MergedContent string `json:"merged_content"`
+
+	// SuggestedTitle is the LLM-proposed title for the merged page
+	SuggestedTitle string `json:"suggested_title"`
+
+	// AbsorbedPaths are the paths that should be deleted after merging
+	AbsorbedPaths []string `json:"absorbed_paths"`
+
+	// ImportanceScore is the LLM-suggested importance for the merged page (0–1)
+	ImportanceScore float64 `json:"importance_score"`
 }
 
 // LintReport is the result of a health check

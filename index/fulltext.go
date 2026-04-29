@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tingly-dev/tingly-wiki/schema"
 )
@@ -12,14 +13,19 @@ import (
 type FullTextIndex struct {
 	mu     sync.RWMutex
 	index  map[string]*IndexedPage // path -> IndexedPage
-	tokens map[string][]string      // token -> paths
+	tokens map[string][]string     // token -> paths
 }
 
-// IndexedPage represents an indexed page
+// IndexedPage represents an indexed page with metadata needed for filtering
 type IndexedPage struct {
-	Path    string
-	Content string
-	Tokens  []string
+	Path       string
+	Content    string
+	Tokens     []string
+	Type       schema.PageType
+	TenantID   string
+	Importance float64
+	MemoryTier schema.MemoryTier
+	ExpiresAt  *time.Time
 }
 
 // NewFullTextIndex creates a new full-text index
@@ -42,11 +48,16 @@ func (f *FullTextIndex) Index(ctx context.Context, page *schema.Page) error {
 		tokens = append(tokens, tokenize(tag)...)
 	}
 
-	// Store indexed page
+	// Store indexed page with metadata needed for filtering
 	f.index[page.Path] = &IndexedPage{
-		Path:    page.Path,
-		Content: page.Content,
-		Tokens:  tokens,
+		Path:       page.Path,
+		Content:    page.Content,
+		Tokens:     tokens,
+		Type:       page.Type,
+		TenantID:   page.TenantID,
+		Importance: page.Importance,
+		MemoryTier: page.MemoryTier,
+		ExpiresAt:  page.ExpiresAt,
 	}
 
 	// Update token index
@@ -90,30 +101,51 @@ func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOp
 
 	// Convert to results
 	var results []SearchResultItem
+	now := time.Now()
 	for path, score := range scores {
 		// Normalize score by query tokens
 		score = score / float64(len(queryTokens))
 
-		page, ok := f.index[path]
+		indexed, ok := f.index[path]
 		if !ok {
 			continue
 		}
 
-		// Apply filters
-		if opts.Type != nil && page.Path != "" { // Page type check would need page loading
-			// Skip if type doesn't match
-		}
-
+		// MinScore filter
 		if opts.MinScore > 0 && score < opts.MinScore {
 			continue
 		}
 
-		// Find excerpt
-		excerpt := findExcerpt(page.Content, queryTokens)
+		// Type filter
+		if opts.Type != nil && indexed.Type != *opts.Type {
+			continue
+		}
+
+		// TenantID filter
+		if opts.TenantID != "" && indexed.TenantID != opts.TenantID {
+			continue
+		}
+
+		// MinImportance filter
+		if opts.MinImportance > 0 && indexed.Importance < opts.MinImportance {
+			continue
+		}
+
+		// MemoryTier filter
+		if opts.MemoryTier != "" && indexed.MemoryTier != opts.MemoryTier {
+			continue
+		}
+
+		// ExcludeExpired filter
+		if opts.ExcludeExpired && indexed.ExpiresAt != nil && indexed.ExpiresAt.Before(now) {
+			continue
+		}
+
+		excerpt := findExcerpt(indexed.Content, queryTokens)
 
 		results = append(results, SearchResultItem{
-			Page: &schema.Page{Path: path}, // Minimal page, would load full page in real impl
-			Score: score,
+			Page:    &schema.Page{Path: path},
+			Score:   score,
 			Excerpt: excerpt,
 		})
 	}

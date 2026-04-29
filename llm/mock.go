@@ -19,6 +19,9 @@ type MockLLM struct {
 
 	// LintFunc is the mock lint function
 	LintFunc func(ctx context.Context, pages []*schema.Page) (*LintReport, error)
+
+	// ConsolidateFunc is the mock consolidate function
+	ConsolidateFunc func(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error)
 }
 
 // NewMockLLM creates a new mock LLM with default behavior
@@ -80,7 +83,6 @@ func (m *MockLLM) Lint(ctx context.Context, pages []*schema.Page) (*LintReport, 
 		return m.LintFunc(ctx, pages)
 	}
 
-	// Default mock implementation
 	return &LintReport{
 		Issues: []LintIssue{
 			{
@@ -89,5 +91,23 @@ func (m *MockLLM) Lint(ctx context.Context, pages []*schema.Page) (*LintReport, 
 				Message:  "No issues found (mock)",
 			},
 		},
+	}, nil
+}
+
+// Consolidate calls the mock consolidate function
+func (m *MockLLM) Consolidate(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error) {
+	if m.ConsolidateFunc != nil {
+		return m.ConsolidateFunc(ctx, pages)
+	}
+
+	// Default: join titles as merged title, concatenate content
+	title := "Consolidated"
+	if len(pages) > 0 {
+		title = pages[0].Title
+	}
+	return &ConsolidateResult{
+		MergedContent:   "Mock consolidated content",
+		SuggestedTitle:  title,
+		ImportanceScore: 0.6,
 	}, nil
 }
