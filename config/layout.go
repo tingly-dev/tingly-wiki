@@ -27,18 +27,32 @@ type LayoutConfig struct {
 
 	// RawDir is for raw source documents (default: "raw/")
 	RawDir string `json:"raw_dir"`
+
+	// Memory-system directories
+
+	// MemoriesDir is for cross-session working memory (default: "memories/")
+	MemoriesDir string `json:"memories_dir"`
+
+	// PreferencesDir is for persistent user/agent preferences (default: "preferences/")
+	PreferencesDir string `json:"preferences_dir"`
+
+	// AuditDir is for agent operation logs (default: "audit/")
+	AuditDir string `json:"audit_dir"`
 }
 
 // DefaultLayout returns the default layout configuration
 func DefaultLayout() *LayoutConfig {
 	return &LayoutConfig{
-		SourcesDir:  "sources/",
-		EntitiesDir: "entities/",
-		ConceptsDir: "concepts/",
-		SynthesisDir: "synthesis/",
-		IndexPath:   "index.md",
-		LogPath:     "log.md",
-		RawDir:      "raw/",
+		SourcesDir:     "sources/",
+		EntitiesDir:    "entities/",
+		ConceptsDir:    "concepts/",
+		SynthesisDir:   "synthesis/",
+		IndexPath:      "index.md",
+		LogPath:        "log.md",
+		RawDir:         "raw/",
+		MemoriesDir:    "memories/",
+		PreferencesDir: "preferences/",
+		AuditDir:       "audit/",
 	}
 }
 
@@ -64,6 +78,21 @@ func (l *LayoutConfig) GetConceptPath(name string) string {
 func (l *LayoutConfig) GetSynthesisPath(name string) string {
 	sanitized := sanitizeName(name)
 	return l.SynthesisDir + sanitized + ".md"
+}
+
+// GetMemoryPath returns the path for a cross-session memory page
+func (l *LayoutConfig) GetMemoryPath(title string) string {
+	return l.MemoriesDir + sanitizeName(title) + ".md"
+}
+
+// GetPreferencePath returns the path for a preference page
+func (l *LayoutConfig) GetPreferencePath(key string) string {
+	return l.PreferencesDir + sanitizeName(key) + ".md"
+}
+
+// GetAuditLogPath returns the path for a date-scoped audit log file (e.g., "audit/2026-04.md")
+func (l *LayoutConfig) GetAuditLogPath(yearMonth string) string {
+	return l.AuditDir + yearMonth + ".md"
 }
 
 // sanitizeName converts a name to a safe filename

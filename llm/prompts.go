@@ -1,6 +1,24 @@
 package llm
 
 const (
+	// PromptConsolidate merges several related pages into one
+	PromptConsolidate = `You are a knowledge consolidation assistant. You will receive several related wiki pages that should be merged into a single, coherent page.
+
+Your task:
+1. Merge all unique information, removing duplicates
+2. Resolve any minor inconsistencies by keeping the most recent or specific information
+3. Produce a single well-structured markdown body (no frontmatter)
+4. Suggest a concise title for the merged page
+5. Suggest an importance score from 0.0 to 1.0 based on how critical this information appears
+
+Return ONLY a JSON object with this structure:
+{
+  "merged_content": "full markdown body of merged page",
+  "suggested_title": "concise title",
+  "importance_score": 0.7
+}
+`
+
 	// PromptExtract is the system prompt for extracting structured information
 	PromptExtract = `You are a knowledge extraction assistant. Your task is to analyze the given content and extract:
 

@@ -237,3 +237,48 @@ func (a *AnthropicAdapter) Lint(ctx context.Context, pages []*schema.Page) (*Lin
 
 	return &report, nil
 }
+
+// Consolidate merges related pages into a single coherent page using LLM
+func (a *AnthropicAdapter) Consolidate(ctx context.Context, pages []*schema.Page) (*ConsolidateResult, error) {
+	content := buildPagesText(pages)
+	prompt := PromptConsolidate + "\n\nPages to consolidate:\n\n" + content
+
+	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+		MaxTokens: 4096,
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: prompt,
+						},
+					},
+				},
+			},
+		},
+		Model: anthropic.Model(a.model),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Anthropic for consolidation: %w", err)
+	}
+
+	if len(resp.Content) == 0 {
+		return nil, fmt.Errorf("no response from Anthropic")
+	}
+
+	contentText := ""
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			contentText = block.Text
+			break
+		}
+	}
+
+	var result ConsolidateResult
+	if err := json.Unmarshal([]byte(contentText), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse consolidation response: %w", err)
+	}
+
+	return &result, nil
+}

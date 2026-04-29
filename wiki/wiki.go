@@ -2,6 +2,7 @@ package wiki
 
 import (
 	"context"
+	"time"
 
 	"github.com/tingly-dev/tingly-wiki/llm"
 	"github.com/tingly-dev/tingly-wiki/schema"
@@ -107,4 +108,153 @@ type Wiki interface {
 
 	// Close releases resources
 	Close() error
+}
+
+// ---- Memory system types ----
+
+// StoreMemoryRequest is the input for StoreMemory
+type StoreMemoryRequest struct {
+	// Type must be PageTypeMemory, PageTypePreference, or PageTypeAuditLog
+	Type schema.PageType
+
+	// Title is a stable key for the memory (used for dedup: same title = update)
+	Title string
+
+	// Content is the markdown body
+	Content string
+
+	// Tags are optional classification tags
+	Tags []string
+
+	// Importance is the initial importance score (0 uses default 0.5)
+	Importance float64
+
+	// TTL is the optional time-to-live; nil means never expires
+	TTL *time.Duration
+
+	// TenantID scopes the memory to a specific agent/user namespace
+	TenantID string
+
+	// AgentID identifies the writing agent
+	AgentID string
+}
+
+// StoreMemoryResult is returned by StoreMemory
+type StoreMemoryResult struct {
+	// Path is the storage path of the page
+	Path string
+
+	// Created is true when a new page was created, false when an existing one was updated
+	Created bool
+}
+
+// RecallOptions controls RecallMemory behavior
+type RecallOptions struct {
+	// Types restricts to specific memory page types (empty = all)
+	Types []schema.PageType
+
+	// TenantID restricts to a specific namespace (empty = all)
+	TenantID string
+
+	// MinImportance filters out pages below this threshold (0 = no filter)
+	MinImportance float64
+
+	// MemoryTier restricts to hot/warm/cold (empty = all)
+	MemoryTier schema.MemoryTier
+
+	// Limit is max results (0 = default 10)
+	Limit int
+}
+
+// RecallResult is returned by RecallMemory
+type RecallResult struct {
+	// Pages are the matching memory pages, ordered by relevance
+	Pages []*schema.Page
+
+	// Total is the total number of matches before the limit was applied
+	Total int
+}
+
+// AuditEntry is a single agent operation log entry
+type AuditEntry struct {
+	// AgentID identifies the agent
+	AgentID string
+
+	// TenantID scopes the entry
+	TenantID string
+
+	// Action is a short verb (e.g., "ingest", "query", "memory_store")
+	Action string
+
+	// TargetPath is the wiki path affected (may be empty)
+	TargetPath string
+
+	// Metadata holds arbitrary key-value context
+	Metadata map[string]string
+
+	// Timestamp defaults to now if zero
+	Timestamp time.Time
+}
+
+// GCResult summarises a garbage-collection run
+type GCResult struct {
+	// DeletedCount is how many expired pages were physically removed
+	DeletedCount int
+
+	// DeletedPaths are the paths of removed pages
+	DeletedPaths []string
+
+	// DemotedCount is how many pages had their MemoryTier lowered
+	DemotedCount int
+}
+
+// ConsolidateOptions controls ConsolidateMemories behavior
+type ConsolidateOptions struct {
+	// TenantID restricts consolidation to a single namespace (empty = all)
+	TenantID string
+
+	// Types restricts which PageTypes are candidates (empty = memory + preference)
+	Types []schema.PageType
+
+	// DryRun reports what would be merged without making changes
+	DryRun bool
+}
+
+// ConsolidateStats summarises a consolidation run
+type ConsolidateStats struct {
+	// MergedGroups is the number of merge groups processed
+	MergedGroups int
+
+	// PagesAbsorbed is how many pages were folded into their merge target
+	PagesAbsorbed int
+
+	// DryRun mirrors ConsolidateOptions.DryRun
+	DryRun bool
+}
+
+// MemoryWiki extends Wiki with memory-system capabilities.
+// All existing Wiki users are unaffected — this is a pure superset.
+type MemoryWiki interface {
+	Wiki
+
+	// StoreMemory writes a memory page, creating or updating by title
+	StoreMemory(ctx context.Context, req *StoreMemoryRequest) (*StoreMemoryResult, error)
+
+	// RecallMemory retrieves memory pages matching the query, with access tracking
+	RecallMemory(ctx context.Context, query string, opts *RecallOptions) (*RecallResult, error)
+
+	// AppendAuditLog appends an entry to the date-scoped audit log (never overwrites)
+	AppendAuditLog(ctx context.Context, entry *AuditEntry) error
+
+	// SetImportance updates the importance score of an existing page
+	SetImportance(ctx context.Context, path string, score float64) error
+
+	// SetTTL sets or clears the expiry time of an existing page
+	SetTTL(ctx context.Context, path string, expiresAt *time.Time) error
+
+	// RunGC deletes expired pages and recalculates MemoryTier for all pages
+	RunGC(ctx context.Context) (*GCResult, error)
+
+	// ConsolidateMemories uses LLM to merge semantically similar memories
+	ConsolidateMemories(ctx context.Context, opts *ConsolidateOptions) (*ConsolidateStats, error)
 }

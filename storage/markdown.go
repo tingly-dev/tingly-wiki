@@ -2,11 +2,13 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tingly-dev/tingly-wiki/config"
 	"github.com/tingly-dev/tingly-wiki/schema"
@@ -148,6 +150,11 @@ func (m *MarkdownStorage) ListPages(ctx context.Context, opts *ListOptions) ([]*
 
 		page.Path = relPath
 
+		// Skip expired pages (logical delete)
+		if page.ExpiresAt != nil && page.ExpiresAt.Before(time.Now()) {
+			return nil
+		}
+
 		// Apply filters
 		if opts != nil {
 			if opts.Type != nil && page.Type != *opts.Type {
@@ -182,9 +189,8 @@ func (m *MarkdownStorage) ReadSource(ctx context.Context, id string) (*schema.So
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Sources are stored in raw/ directory
 	fullPath := filepath.Join(m.root, m.layout.RawDir, id+".json")
-	_, err := os.ReadFile(fullPath)
+	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("source not found: %s", id)
@@ -192,9 +198,11 @@ func (m *MarkdownStorage) ReadSource(ctx context.Context, id string) (*schema.So
 		return nil, fmt.Errorf("failed to read source: %w", err)
 	}
 
-	// TODO: Parse JSON
-	// For now, return a placeholder
-	return &schema.Source{ID: id}, nil
+	var source schema.Source
+	if err := json.Unmarshal(data, &source); err != nil {
+		return nil, fmt.Errorf("failed to parse source %s: %w", id, err)
+	}
+	return &source, nil
 }
 
 // WriteSource writes a source to disk
@@ -202,16 +210,18 @@ func (m *MarkdownStorage) WriteSource(ctx context.Context, source *schema.Source
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Ensure raw directory exists
 	rawDir := filepath.Join(m.root, m.layout.RawDir)
 	if err := os.MkdirAll(rawDir, 0755); err != nil {
 		return fmt.Errorf("failed to create raw directory: %w", err)
 	}
 
-	// TODO: Serialize to JSON
-	// For now, just create a placeholder file
+	data, err := json.Marshal(source)
+	if err != nil {
+		return fmt.Errorf("failed to serialize source: %w", err)
+	}
+
 	fullPath := filepath.Join(rawDir, source.ID+".json")
-	if err := os.WriteFile(fullPath, []byte("{}"), 0644); err != nil {
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write source: %w", err)
 	}
 

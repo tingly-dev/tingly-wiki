@@ -10,6 +10,20 @@ const (
 	PageTypeConcept   PageType = "concept"
 	PageTypeSource    PageType = "source"
 	PageTypeSynthesis PageType = "synthesis"
+
+	// Memory-system page types
+	PageTypePreference PageType = "preference" // persistent user/agent preferences
+	PageTypeMemory     PageType = "memory"     // cross-session working memory
+	PageTypeAuditLog   PageType = "audit_log"  // append-only agent operation log
+)
+
+// MemoryTier classifies how "hot" a memory is for retrieval prioritization
+type MemoryTier string
+
+const (
+	MemoryTierHot  MemoryTier = "hot"  // accessed within 7 days, high importance
+	MemoryTierWarm MemoryTier = "warm" // 7–30 days or moderate importance
+	MemoryTierCold MemoryTier = "cold" // >30 days or low importance, archived
 )
 
 // Page represents a wiki page
@@ -49,6 +63,32 @@ type Frontmatter struct {
 
 	// Sources are source document IDs (for derived pages)
 	Sources []string `json:"sources,omitempty" yaml:"sources,omitempty"`
+
+	// Memory lifecycle fields
+
+	// Importance is a 0.0–1.0 score; higher = more critical to retain.
+	// 0 means "use system default (0.5)".
+	Importance float64 `json:"importance,omitempty" yaml:"importance,omitempty"`
+
+	// ExpiresAt is the TTL deadline; nil means never expires.
+	ExpiresAt *time.Time `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+
+	// AccessCount tracks how many times this page was recalled.
+	AccessCount int `json:"access_count,omitempty" yaml:"access_count,omitempty"`
+
+	// LastAccessedAt is when the page was last recalled.
+	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty" yaml:"last_accessed_at,omitempty"`
+
+	// MemoryTier classifies retrieval priority (hot/warm/cold).
+	MemoryTier MemoryTier `json:"memory_tier,omitempty" yaml:"memory_tier,omitempty"`
+
+	// Provenance fields
+
+	// TenantID scopes this page to a specific agent or user namespace.
+	TenantID string `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"`
+
+	// AgentID identifies which agent wrote this page.
+	AgentID string `json:"agent_id,omitempty" yaml:"agent_id,omitempty"`
 
 	// Custom fields
 	Extra map[string]interface{} `json:"-" yaml:"-"`
