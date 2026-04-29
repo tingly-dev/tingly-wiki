@@ -38,6 +38,9 @@ type LayoutConfig struct {
 
 	// AuditDir is for agent operation logs (default: "audit/")
 	AuditDir string `json:"audit_dir"`
+
+	// ProceduresDir is for reusable workflow/skill pages (default: "procedures/")
+	ProceduresDir string `json:"procedures_dir"`
 }
 
 // DefaultLayout returns the default layout configuration
@@ -53,6 +56,7 @@ func DefaultLayout() *LayoutConfig {
 		MemoriesDir:    "memories/",
 		PreferencesDir: "preferences/",
 		AuditDir:       "audit/",
+		ProceduresDir:  "procedures/",
 	}
 }
 
@@ -93,6 +97,11 @@ func (l *LayoutConfig) GetPreferencePath(key string) string {
 // GetAuditLogPath returns the path for a date-scoped audit log file (e.g., "audit/2026-04.md")
 func (l *LayoutConfig) GetAuditLogPath(yearMonth string) string {
 	return l.AuditDir + yearMonth + ".md"
+}
+
+// GetProcedurePath returns the path for a procedure/skill page
+func (l *LayoutConfig) GetProcedurePath(name string) string {
+	return l.ProceduresDir + sanitizeName(name) + ".md"
 }
 
 // sanitizeName converts a name to a safe filename

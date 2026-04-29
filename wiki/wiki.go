@@ -266,4 +266,9 @@ type MemoryWiki interface {
 
 	// ConsolidateMemories uses LLM to merge semantically similar memories
 	ConsolidateMemories(ctx context.Context, opts *ConsolidateOptions) (*ConsolidateStats, error)
+
+	// AssembleContext builds a compact, injectable text bundle from stored memories.
+	// This is the "last-mile" method: the caller receives Text and decides
+	// where and when to inject it (system prompt, tool result, etc.).
+	AssembleContext(ctx context.Context, opts *AssembleOptions) (*AssembledContext, error)
 }

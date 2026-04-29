@@ -15,6 +15,7 @@ const (
 	PageTypePreference PageType = "preference" // persistent user/agent preferences
 	PageTypeMemory     PageType = "memory"     // cross-session working memory
 	PageTypeAuditLog   PageType = "audit_log"  // append-only agent operation log
+	PageTypeProcedure  PageType = "procedure"  // reusable workflow / skill (how to do X)
 )
 
 // MemoryTier classifies how "hot" a memory is for retrieval prioritization
