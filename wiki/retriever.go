@@ -35,6 +35,9 @@ var defaultLayerStrategies = map[schema.PageType]LayerStrategy{
 	schema.PageTypeEntity:     {KeywordWeight: 0.7, ImportanceWeight: 0.2, VectorWeight: 0.1},
 	schema.PageTypeConcept:    {VectorWeight: 0.4, KeywordWeight: 0.4, ImportanceWeight: 0.2},
 	schema.PageTypeSynthesis:  {VectorWeight: 0.5, KeywordWeight: 0.3, ImportanceWeight: 0.2},
+	// Procedure pages are retrieved by keyword (precise skill names) with
+	// a vector component for situation-matching and importance for prioritization.
+	schema.PageTypeProcedure: {KeywordWeight: 0.5, VectorWeight: 0.3, ImportanceWeight: 0.2},
 }
 
 // ScoredPage pairs a page with its composite recall score.

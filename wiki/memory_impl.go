@@ -96,15 +96,59 @@ func withValidFacts(page *schema.Page) *schema.Page {
 // All existing Wiki methods are delegated to the embedded *WikiImpl unchanged.
 type MemoryWikiImpl struct {
 	*WikiImpl
-	scorer    *ImportanceScorer
-	vector    index.VectorIndex  // optional; nil → keyword-only recall
-	retriever *HybridRetriever
+	scorer        *ImportanceScorer
+	vector        index.VectorIndex // optional; nil → keyword-only recall
+	retriever     *HybridRetriever
+	factExtractor FactExtractor
+	embedder      Embedder
+	linkExtractor LinkExtractor
+	assembler     ContextAssembler
+}
+
+// MemoryWikiOption is a functional option for NewMemoryWiki.
+type MemoryWikiOption func(*MemoryWikiImpl)
+
+// WithFactExtractor overrides the default LLMFactExtractor.
+// Use NoopFactExtractor to disable fact extraction entirely.
+func WithFactExtractor(fe FactExtractor) MemoryWikiOption {
+	return func(m *MemoryWikiImpl) { m.factExtractor = fe }
+}
+
+// WithEmbedder overrides the default LLMEmbedder.
+// Use NoopEmbedder to disable vector indexing even when a VectorIndex is present.
+func WithEmbedder(e Embedder) MemoryWikiOption {
+	return func(m *MemoryWikiImpl) { m.embedder = e }
+}
+
+// WithLinkExtractor sets the LinkExtractor used on every StoreMemory call.
+// Default is NoopLinkExtractor (no automatic link extraction).
+func WithLinkExtractor(le LinkExtractor) MemoryWikiOption {
+	return func(m *MemoryWikiImpl) { m.linkExtractor = le }
+}
+
+// WithVectorIndex sets the vector index, overriding cfg.VectorIndex.
+func WithVectorIndex(vi index.VectorIndex) MemoryWikiOption {
+	return func(m *MemoryWikiImpl) {
+		m.vector = vi
+		m.retriever = NewHybridRetriever(m.WikiImpl.index, vi, m.scorer, m.WikiImpl.llm)
+	}
+}
+
+// WithAssembler overrides the DefaultAssembler used by AssembleContext.
+func WithAssembler(a ContextAssembler) MemoryWikiOption {
+	return func(m *MemoryWikiImpl) { m.assembler = a }
 }
 
 // NewMemoryWiki creates a MemoryWiki-capable wiki instance.
-// The cfg argument is identical to what wiki.New() accepts, with the optional
-// cfg.VectorIndex field providing semantic retrieval capability.
-func NewMemoryWiki(cfg *config.Config) (*MemoryWikiImpl, error) {
+//
+// Default pluggable components:
+//   - FactExtractor: LLMFactExtractor (calls LLM on each StoreMemory)
+//   - Embedder:      LLMEmbedder (active only when vector index is present)
+//   - LinkExtractor: NoopLinkExtractor
+//   - Assembler:     DefaultAssembler
+//
+// Override any of these via the WithXxx functional options.
+func NewMemoryWiki(cfg *config.Config, opts ...MemoryWikiOption) (*MemoryWikiImpl, error) {
 	base, err := New(cfg)
 	if err != nil {
 		return nil, err
@@ -121,12 +165,22 @@ func NewMemoryWiki(cfg *config.Config) (*MemoryWikiImpl, error) {
 
 	retriever := NewHybridRetriever(base.index, vec, scorer, base.llm)
 
-	return &MemoryWikiImpl{
-		WikiImpl:  base,
-		scorer:    scorer,
-		vector:    vec,
-		retriever: retriever,
-	}, nil
+	m := &MemoryWikiImpl{
+		WikiImpl:      base,
+		scorer:        scorer,
+		vector:        vec,
+		retriever:     retriever,
+		factExtractor: NewLLMFactExtractor(base.llm),
+		embedder:      NewLLMEmbedder(base.llm),
+		linkExtractor: NoopLinkExtractor{},
+		assembler:     NewDefaultAssembler(base.storage, retriever),
+	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	return m, nil
 }
 
 // ---- MemoryWiki implementation ----
@@ -155,8 +209,8 @@ func (m *MemoryWikiImpl) StoreMemory(ctx context.Context, req *StoreMemoryReques
 		}
 	}
 
-	// ── Fact extraction ───────────────────────────────────────────────────────
-	newFacts, _ := m.llm.ExtractMemoryFacts(ctx, req.Content, req.Type) // best-effort
+	// ── Fact extraction (pluggable) ───────────────────────────────────────────
+	newFacts, _ := m.factExtractor.Extract(ctx, req.Content, req.Type) // best-effort
 
 	// ── TTL ───────────────────────────────────────────────────────────────────
 	var expiresAt *time.Time
@@ -203,14 +257,35 @@ func (m *MemoryWikiImpl) StoreMemory(ctx context.Context, req *StoreMemoryReques
 		return nil, fmt.Errorf("StoreMemory: index failed: %w", err)
 	}
 
-	// ── Vector index (best-effort) ────────────────────────────────────────────
+	// ── Vector index (pluggable embedder, best-effort) ───────────────────────
 	if m.vector != nil {
-		if vec, err := m.llm.Embed(ctx, canonicalText(page)); err == nil && len(vec) > 0 {
+		if vec, err := m.embedder.Embed(ctx, canonicalText(page)); err == nil && len(vec) > 0 {
 			_ = m.vector.IndexVector(ctx, path, vec, &index.VectorMeta{
 				Type:      page.Type,
 				TenantID:  page.TenantID,
 				ExpiresAt: page.ExpiresAt,
 			})
+		}
+	}
+
+	// ── Link extraction (pluggable, best-effort) ──────────────────────────────
+	if links, err := m.linkExtractor.Extract(ctx, req.Content); err == nil && len(links) > 0 {
+		related := make([]string, 0, len(links))
+		seen := make(map[string]bool, len(page.Related))
+		for _, r := range page.Related {
+			seen[r] = true
+		}
+		for _, l := range links {
+			// Use the object as a related-page hint (best-effort name resolution)
+			if !seen[l.Object] {
+				seen[l.Object] = true
+				related = append(related, l.Object)
+			}
+		}
+		if len(related) > 0 {
+			page.Related = append(page.Related, related...)
+			// Re-persist with updated Related field
+			_ = m.storage.WritePage(ctx, page)
 		}
 	}
 
@@ -456,9 +531,17 @@ func (m *MemoryWikiImpl) pathForType(pt schema.PageType, title string) string {
 		return m.layout.GetPreferencePath(title)
 	case schema.PageTypeAuditLog:
 		return m.layout.GetAuditLogPath(time.Now().UTC().Format("2006-01"))
+	case schema.PageTypeProcedure:
+		return m.layout.GetProcedurePath(title)
 	default:
 		return m.layout.GetMemoryPath(title)
 	}
+}
+
+// AssembleContext builds a compact, injectable text bundle from stored memories.
+// The caller decides where and when to inject the returned Text.
+func (m *MemoryWikiImpl) AssembleContext(ctx context.Context, opts *AssembleOptions) (*AssembledContext, error) {
+	return m.assembler.Assemble(ctx, opts)
 }
 
 func formatAuditEntry(e *AuditEntry) string {
