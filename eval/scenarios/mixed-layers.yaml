@@ -1,0 +1,57 @@
+name: mixed-layers
+description: |
+  Tests retrieval across multiple layers (preference + memory + procedure)
+  in a single query, simulating how an agent might assemble context for
+  varied user intents.
+
+config:
+  use_vector: true
+
+setup:
+  - op: store
+    type: preference
+    title: tone
+    content: "User prefers concise, direct answers without unnecessary preamble"
+    importance: 0.9
+
+  - op: store
+    type: memory
+    title: project-roadmap
+    content: "Q1 focus: agent memory system. Q2: imbot integration with MCP server"
+    importance: 0.8
+
+  - op: store
+    type: procedure
+    title: ticket-triage
+    content: |
+      1. Read incoming ticket
+      2. Look up customer context in memory
+      3. Check related entities and prior tickets
+      4. Draft response, request review for high-severity items
+    importance: 0.85
+
+  - op: store
+    type: memory
+    title: random-coffee-chat
+    content: "casual chat about the office snacks"
+    importance: 0.2
+
+queries:
+  - query: "how should I respond to the customer?"
+    types: [preference, procedure]
+    k: 5
+    relevant_paths:
+      - preferences/tone.md
+      - procedures/ticket-triage.md
+
+  - query: "quarterly objectives for the team"
+    types: [memory]
+    k: 5
+    relevant_paths:
+      - memories/project-roadmap.md
+
+  - query: "process for handling a new ticket"
+    types: [procedure]
+    k: 3
+    relevant_paths:
+      - procedures/ticket-triage.md

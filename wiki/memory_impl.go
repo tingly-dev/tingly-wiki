@@ -196,7 +196,7 @@ func (m *MemoryWikiImpl) StoreMemory(ctx context.Context, req *StoreMemoryReques
 		return nil, fmt.Errorf("StoreMemory: Title is required")
 	}
 
-	path := m.pathForType(req.Type, req.Title)
+	path := m.pathForType(req.Type, req.Title, req.TenantID)
 	now := time.Now()
 
 	// ── Importance ────────────────────────────────────────────────────────────
@@ -316,19 +316,20 @@ func (m *MemoryWikiImpl) RecallMemory(ctx context.Context, query string, opts *R
 	now := time.Now()
 	pages := make([]*schema.Page, 0, len(scored))
 	for _, s := range scored {
-		page := s.Page
+		// Update access tracking on the FULL page (preserves invalidated facts)
+		full := s.Page
+		full.AccessCount++
+		full.LastAccessedAt = &now
+		full.MemoryTier = m.scorer.Tier(full)
+		_ = m.storage.WritePage(ctx, full)
 
-		// Filter invalidated facts unless the caller explicitly wants history
+		// Return a filtered view (without invalidated facts) unless caller asked for history.
+		// withValidFacts returns a shallow copy, so the persisted page keeps its full history.
+		out := full
 		if !opts.IncludeInvalidated {
-			page = withValidFacts(page)
+			out = withValidFacts(full)
 		}
-		pages = append(pages, page)
-
-		// Write-through: update access tracking (best-effort)
-		page.AccessCount++
-		page.LastAccessedAt = &now
-		page.MemoryTier = m.scorer.Tier(page)
-		_ = m.storage.WritePage(ctx, page)
+		pages = append(pages, out)
 	}
 
 	return &RecallResult{Pages: pages, Total: len(scored)}, nil
@@ -342,7 +343,7 @@ func (m *MemoryWikiImpl) AppendAuditLog(ctx context.Context, entry *AuditEntry) 
 	}
 
 	yearMonth := entry.Timestamp.UTC().Format("2006-01")
-	path := m.layout.GetAuditLogPath(yearMonth)
+	path := m.pathForType(schema.PageTypeAuditLog, yearMonth, entry.TenantID)
 
 	// Read existing content (create if absent)
 	var existing string
@@ -525,17 +526,25 @@ func (m *MemoryWikiImpl) ConsolidateMemories(ctx context.Context, opts *Consolid
 
 // ---- helpers ----
 
-func (m *MemoryWikiImpl) pathForType(pt schema.PageType, title string) string {
+// pathForType returns the storage path for a memory page.
+// When tenantID is non-empty, the path is namespaced under tenants/{tenantID}/
+// so that two tenants writing the same logical title do not collide.
+func (m *MemoryWikiImpl) pathForType(pt schema.PageType, title, tenantID string) string {
+	var base string
 	switch pt {
 	case schema.PageTypePreference:
-		return m.layout.GetPreferencePath(title)
+		base = m.layout.GetPreferencePath(title)
 	case schema.PageTypeAuditLog:
-		return m.layout.GetAuditLogPath(time.Now().UTC().Format("2006-01"))
+		base = m.layout.GetAuditLogPath(time.Now().UTC().Format("2006-01"))
 	case schema.PageTypeProcedure:
-		return m.layout.GetProcedurePath(title)
+		base = m.layout.GetProcedurePath(title)
 	default:
-		return m.layout.GetMemoryPath(title)
+		base = m.layout.GetMemoryPath(title)
 	}
+	if tenantID == "" {
+		return base
+	}
+	return "tenants/" + tenantID + "/" + base
 }
 
 // AssembleContext builds a compact, injectable text bundle from stored memories.
