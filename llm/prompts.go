@@ -125,6 +125,37 @@ Return your response as a JSON object:
 Be thorough but practical. Focus on actionable issues.`
 )
 
+const (
+	// PromptExtractMemoryFacts extracts atomic (subject, predicate, object) triples
+	PromptExtractMemoryFacts = `You are a memory fact extractor. Extract atomic facts from the content below.
+
+Each fact must follow the form: subject → predicate → object.
+
+Guidelines:
+- subject: who/what the fact is about (use "user" for the end-user, or a named entity)
+- predicate: the relationship type (e.g. "prefers", "uses", "lives_in", "works_at", "is", "dislikes")
+- object: the value or target
+- confidence: 0.7–1.0 for explicit facts, 0.5–0.7 for clearly implied facts
+- event_time: ISO 8601 timestamp if a specific time is mentioned; omit otherwise
+- Only extract facts that are directly stated or strongly implied — no speculation
+
+Return ONLY a JSON array (no markdown fences):
+[{"subject":"string","predicate":"string","object":"string","confidence":0.9}]`
+
+	// PromptRateImportance scores how worth retaining a piece of content is
+	PromptRateImportance = `You are a memory importance evaluator. Rate how important the content is for an AI assistant to remember for future interactions.
+
+Score guidelines:
+- 0.9–1.0: Core identity / persistent preference (name, language, crucial constraints)
+- 0.7–0.8: Important preference or repeated pattern (tool choice, communication style)
+- 0.5–0.6: Useful context (current project, recent topic)
+- 0.3–0.4: Transient / situational (one-off request, ephemeral state)
+- 0.1–0.2: Trivial or easily re-derivable
+
+Return ONLY a JSON object: {"importance": 0.75}`
+
+)
+
 // PromptBuilder builds prompts with context
 type PromptBuilder struct{}
 

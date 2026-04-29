@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -281,4 +282,97 @@ func (a *AnthropicAdapter) Consolidate(ctx context.Context, pages []*schema.Page
 	}
 
 	return &result, nil
+}
+
+// Embed is not supported by Anthropic (no native embedding model).
+func (a *AnthropicAdapter) Embed(_ context.Context, _ string) ([]float32, error) {
+	return nil, ErrEmbeddingNotSupported
+}
+
+// ExtractMemoryFacts extracts atomic (subject, predicate, object) facts using Claude.
+func (a *AnthropicAdapter) ExtractMemoryFacts(ctx context.Context, content string, pageType schema.PageType) ([]schema.MemoryFact, error) {
+	prompt := PromptExtractMemoryFacts + "\n\nContent (type: " + string(pageType) + "):\n\n" + content
+
+	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+		MaxTokens: 2048,
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{OfText: &anthropic.TextBlockParam{Text: prompt}},
+				},
+			},
+		},
+		Model: anthropic.Model(a.model),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("anthropic extract facts: %w", err)
+	}
+	if len(resp.Content) == 0 {
+		return nil, fmt.Errorf("anthropic extract facts: empty response")
+	}
+
+	text := ""
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			text = block.Text
+			break
+		}
+	}
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	var facts []schema.MemoryFact
+	if err := json.Unmarshal([]byte(text), &facts); err != nil {
+		return nil, fmt.Errorf("anthropic extract facts: parse error: %w", err)
+	}
+	return facts, nil
+}
+
+// RateImportance asks Claude how important content is for future recall (0.0–1.0).
+func (a *AnthropicAdapter) RateImportance(ctx context.Context, content string) (float64, error) {
+	prompt := PromptRateImportance + "\n\nContent:\n\n" + content
+
+	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+		MaxTokens: 64,
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{OfText: &anthropic.TextBlockParam{Text: prompt}},
+				},
+			},
+		},
+		Model: anthropic.Model(a.model),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("anthropic rate importance: %w", err)
+	}
+	if len(resp.Content) == 0 {
+		return 0, fmt.Errorf("anthropic rate importance: empty response")
+	}
+
+	text := ""
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			text = block.Text
+			break
+		}
+	}
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	var result struct {
+		Importance float64 `json:"importance"`
+	}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return 0, fmt.Errorf("anthropic rate importance: parse error: %w", err)
+	}
+	return result.Importance, nil
 }
