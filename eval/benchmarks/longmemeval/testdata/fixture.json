@@ -1,0 +1,49 @@
+[
+  {
+    "id": "item_001",
+    "category": "information_extraction",
+    "question": "What is the user's favorite food?",
+    "answer": "pizza",
+    "sessions": [
+      {
+        "session_id": "session_1",
+        "content": "User mentioned they love pizza and Italian food in general. They often cook pasta on weekends."
+      },
+      {
+        "session_id": "session_2",
+        "content": "User talked about their recent trip to New York and visiting art museums."
+      }
+    ],
+    "relevant_session_ids": ["session_1"]
+  },
+  {
+    "id": "item_002",
+    "category": "knowledge_update",
+    "question": "Where does the user currently live?",
+    "answer": "Seattle",
+    "sessions": [
+      {
+        "session_id": "session_1",
+        "content": "User said they used to live in Portland but recently moved to Seattle for work."
+      }
+    ],
+    "relevant_session_ids": ["session_1"]
+  },
+  {
+    "id": "item_003",
+    "category": "temporal_reasoning",
+    "question": "What did the user do last summer?",
+    "answer": "road trip across the Pacific Northwest",
+    "sessions": [
+      {
+        "session_id": "session_1",
+        "content": "User went on a road trip across the Pacific Northwest last summer, visiting national parks."
+      },
+      {
+        "session_id": "session_2",
+        "content": "User is planning a trip to Europe next year."
+      }
+    ],
+    "relevant_session_ids": ["session_1"]
+  }
+]

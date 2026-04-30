@@ -23,9 +23,10 @@ type CLI struct {
 	OpenAIModel  string `help:"Model name" default:"gpt-4o-mini"`
 
 	// Commands
-	Ingest IngestCmd `cmd:"" help:"Ingest content from stdin or file"`
-	Ask    AskCmd    `cmd:"" help:"Ask the wiki a question"`
-	Eval   EvalCmd   `cmd:"" help:"Run memory quality evaluation scenarios"`
+	Ingest    IngestCmd    `cmd:"" help:"Ingest content from stdin or file"`
+	Ask       AskCmd       `cmd:"" help:"Ask the wiki a question"`
+	Eval      EvalCmd      `cmd:"" help:"Run memory quality evaluation scenarios"`
+	Benchmark BenchmarkCmd `cmd:"" help:"Run external benchmark datasets (LoCoMo, LongMemEval)"`
 
 	// IO for testing
 	stdout io.Writer
