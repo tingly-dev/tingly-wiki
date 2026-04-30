@@ -1,0 +1,37 @@
+[
+  {
+    "conversation_id": "conv_001",
+    "sessions": [
+      {
+        "session_id": 1,
+        "dialogue": [
+          {"speaker": "human", "text": "I love cooking Italian food, especially pasta."},
+          {"speaker": "ai",    "text": "That sounds wonderful! Pasta is a classic."},
+          {"speaker": "human", "text": "My favourite is carbonara."}
+        ]
+      },
+      {
+        "session_id": 2,
+        "dialogue": [
+          {"speaker": "human", "text": "I moved to San Francisco last year for a new job."},
+          {"speaker": "ai",    "text": "SF is a great city! What do you do there?"},
+          {"speaker": "human", "text": "I'm a software engineer at a startup."}
+        ]
+      }
+    ],
+    "questions": [
+      {
+        "question": "What kind of food does the user like to cook?",
+        "answer": "Italian food, especially pasta",
+        "evidence": ["session_1"],
+        "category": "single_session_qa"
+      },
+      {
+        "question": "Where does the user currently live?",
+        "answer": "San Francisco",
+        "evidence": ["session_2"],
+        "category": "single_session_qa"
+      }
+    ]
+  }
+]
