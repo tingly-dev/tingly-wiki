@@ -1,5 +1,8 @@
 # Git ignore file
 
+.wiki
+bin
+
 # Added by Tingly Git extension - 2026-04-27
 # Source: https://github.com/github/gitignore
 
@@ -34,6 +37,5 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
-
+.idea/
+.vscode/
