@@ -32,17 +32,17 @@ tasks:
     env:
       WIKI_DIR: "{{.WIKI_DIR}}"
       OPENAI_API_KEY: "{{.OPENAI_API_KEY}}"
-      OPENAI_MODEL: "{{.OPENAI_MODEL | default \"gpt-4o-mini\"}}"
-      OPENAI_BASE_URL: "{{.OPENAI_BASE_URL | default \"\"}}"
+      OPENAI_MODEL: "{{.OPENAI_MODEL}}"
+      OPENAI_BASE_URL: "{{.OPENAI_BASE_URL}}"
 
   demo:custom:
     desc: Run demo with custom OpenAI-compatible endpoint
     cmd: go run examples/basic/main.go
     env:
       WIKI_DIR: "{{.WIKI_DIR}}"
-      OPENAI_API_KEY: "{{.CUSTOM_API_KEY | default \"tingly-box-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnRfaWQiOiJ0ZXN0LWNsaWVudCIsImV4cCI6MTc2NjQwMzQwNSwiaWF0IjoxNzY2MzE3MDA1fQ.AHtmsHxGGJ0jtzvrTZMHC3kfl3Os94HOhMA-zXFtHXQ\"}}"
-      OPENAI_BASE_URL: "{{.CUSTOM_BASE_URL | default \"http://localhost:12580/tingly/openai\"}}"
-      OPENAI_MODEL: "{{.CUSTOM_MODEL | default \"tingly-ds\"}}"
+      OPENAI_API_KEY: "{{.CUSTOM_API_KEY}}"
+      OPENAI_BASE_URL: "{{.CUSTOM_BASE_URL}}"
+      OPENAI_MODEL: "{{.CUSTOM_MODEL}}"
 
   clean:
     desc: Remove the wiki directory
@@ -77,8 +77,38 @@ tasks:
     desc: Ingest content via CLI
     cmd: ./bin/wiki --wiki-dir "{{.WIKI_DIR}}" --open-ai-key "{{.OPENAI_API_KEY}}" --open-ai-base-url "{{.OPENAI_BASE_URL}}" --open-ai-model "{{.OPENAI_MODEL}}" ingest "{{.PATH}}"
     vars:
-      PATH: "{{.PATH | default \"-\"}}"
+      PATH: "{{.PATH}}"
+      OPENAI_API_KEY: "{{.CUSTOM_API_KEY}}"
+      OPENAI_BASE_URL: "{{.CUSTOM_BASE_URL}}"
+      OPENAI_MODEL: "{{.CUSTOM_MODEL}}"
 
   cli:ask:
     desc: Ask wiki a question via CLI
     cmd: ./bin/wiki --wiki-dir "{{.WIKI_DIR}}" --open-ai-key "{{.OPENAI_API_KEY}}" --open-ai-base-url "{{.OPENAI_BASE_URL}}" --open-ai-model "{{.OPENAI_MODEL}}" ask "{{.QUESTION}}"
+    vars:
+      OPENAI_API_KEY: "{{.CUSTOM_API_KEY}}"
+      OPENAI_BASE_URL: "{{.CUSTOM_BASE_URL}}"
+      OPENAI_MODEL: "{{.CUSTOM_MODEL}}"
+
+  # Benchmark tasks (now uses config file for settings)
+  benchmark:init:
+    desc: Initialize benchmark config file
+    cmd: ./bin/wiki cfg --init
+
+  benchmark:show:
+    desc: Show current benchmark configuration
+    cmd: ./bin/wiki cfg --show
+
+  locomo:
+    desc: Run LoCoMo benchmark (uses config file settings)
+    cmds:
+      - task: cli:build
+      - ./bin/wiki benchmark --dataset locomo
+    vars:
+      CUSTOM_API_KEY: "{{.CUSTOM_API_KEY}}"
+
+  locomo:mock:
+    desc: Run LoCoMo benchmark with mock embeddings (overrides config)
+    cmds:
+      - task: cli:build
+      - ./bin/wiki benchmark --dataset locomo --data-path .benchmark/locomo10.json
