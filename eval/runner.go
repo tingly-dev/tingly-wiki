@@ -59,11 +59,13 @@ func (r *Runner) Run(ctx context.Context, sc *Scenario) (*ScenarioMetric, error)
 // RunAll executes scenarios sequentially.
 func (r *Runner) RunAll(ctx context.Context, scs []*Scenario) ([]*ScenarioMetric, error) {
 	out := make([]*ScenarioMetric, 0, len(scs))
-	for _, sc := range scs {
+	for i, sc := range scs {
+		fmt.Printf("  [%d/%d] Running scenario: %s (%d queries)\n", i+1, len(scs), sc.Name, len(sc.Queries))
 		m, err := r.Run(ctx, sc)
 		if err != nil {
 			return out, err
 		}
+		fmt.Printf("      → P@K=%.2f R@K=%.2f MRR=%.2f\n", m.AvgPrecisionK, m.AvgRecallK, m.MRR)
 		out = append(out, m)
 	}
 	return out, nil

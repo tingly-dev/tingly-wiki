@@ -1,0 +1,48 @@
+# Tingly-Wiki Configuration File
+# This file can be placed at:
+#   - .wiki/config.yml
+#   - ~/.wiki/config.yml
+#   - ./config.yml
+#
+# CLI flags take precedence over this file.
+
+# Wiki storage directory
+wiki_dir: ".wiki"
+
+# LLM Configuration
+llm:
+  # Provider: openai, anthropic, mock
+  provider: "openai"
+
+  # OpenAI Settings
+  openai:
+    # API Key (can also be set via OPENAI_API_KEY env var)
+    api_key: "${OPENAI_API_KEY}"
+
+    # Custom endpoint (for OpenAI-compatible APIs)
+    base_url: "http://localhost:12580/tingly/openai"
+
+    # Chat model (gpt-4o-mini, gpt-4o, gpt-4-turbo, etc.)
+    model: "gpt-4o-mini"
+
+    # Embedding model (text-embedding-3-small, text-embedding-3-large, etc.)
+    embedding_model: "text-embedding-3-small"
+
+  # Anthropic Settings (when provider is "anthropic")
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-5-sonnet-20241022"
+
+# Benchmark Configuration
+benchmark:
+  # Directory containing benchmark datasets
+  data_dir: ".benchmark"
+
+  # Default dataset to run
+  dataset: "locomo"
+
+  # Use real LLM for embeddings (set to true for accurate results)
+  real_llm: true
+
+  # Output format: markdown, json
+  format: "markdown"

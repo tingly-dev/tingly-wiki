@@ -39,16 +39,20 @@ func (br *BenchmarkRunner) RunLoCoMo(ctx context.Context, dataPath string, limit
 	if len(convs) == 0 {
 		return nil, fmt.Errorf("locomo: no conversations found in %s", dataPath)
 	}
+	fmt.Printf("📂 Loaded %d conversations from %s\n", len(convs), dataPath)
 
 	scenarios := locomo.ToScenarios(convs, limit)
 	if len(scenarios) == 0 {
 		return nil, fmt.Errorf("locomo: no valid scenarios generated from %s", dataPath)
 	}
+	fmt.Printf("✅ Converted to %d scenarios\n", len(scenarios))
 
+	fmt.Printf("🔄 Running evaluation...\n")
 	metrics, err := br.EvalRunner.RunAll(ctx, scenarios)
 	if err != nil {
 		return nil, fmt.Errorf("locomo run: %w", err)
 	}
+	fmt.Printf("✅ Evaluation complete: %d scenarios\n", len(metrics))
 
 	results := make([]*BenchmarkResult, len(metrics))
 	for i, m := range metrics {
