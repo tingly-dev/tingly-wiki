@@ -16,6 +16,9 @@ import (
 type BenchmarkRunner struct {
 	// EvalRunner is the underlying scenario runner. Created by NewBenchmarkRunner.
 	EvalRunner *eval.Runner
+	// OutputDir is the directory where wiki data will be persisted.
+	// If empty, uses in-memory storage (faster, no disk I/O).
+	OutputDir string
 }
 
 // NewBenchmarkRunner returns a BenchmarkRunner. Pass a non-nil llm.LLM to

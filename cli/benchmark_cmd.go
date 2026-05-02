@@ -37,6 +37,10 @@ type BenchmarkCmd struct {
 	// adapter for embeddings — produces quality numbers closer to production.
 	// If not specified, uses value from config file.
 	RealLLM bool `help:"Use real OpenAI LLM for embeddings (requires --openai-key)"`
+
+	// OutputDir is the directory where wiki data will be persisted.
+	// If empty, uses in-memory storage (faster, no disk I/O).
+	OutputDir string `help:"Directory to persist wiki data for inspection (default: in-memory)"`
 }
 
 // Run executes the benchmark command.
@@ -64,8 +68,12 @@ func (c *BenchmarkCmd) Run(cli *CLI) error {
 	}
 
 	// Determine whether to use real LLM
+	// CLI flag takes precedence over config file
 	realLLM := c.RealLLM
-	if !realLLM && cli.cliConfig != nil {
+	if !c.RealLLM && cli.cliConfig != nil {
+		// If CLI flag is false (not set or explicitly false), check config
+		// This means --real-llm=false will still use config value if true
+		// To explicitly disable, set real_llm: false in config file
 		realLLM = cli.cliConfig.Benchmark.RealLLM
 	}
 
@@ -73,9 +81,6 @@ func (c *BenchmarkCmd) Run(cli *CLI) error {
 	if realLLM {
 		// Get OpenAI config from config file or CLI flags
 		llmCfg := cli.getOpenAIConfig()
-		if llmCfg.APIKey == "" {
-			return fmt.Errorf("--openai-key is required when --real-llm is set")
-		}
 		adapter, err := llm.NewOpenAIAdapter(llmCfg)
 		if err != nil {
 			return fmt.Errorf("create OpenAI adapter: %w", err)
@@ -84,6 +89,10 @@ func (c *BenchmarkCmd) Run(cli *CLI) error {
 	} else {
 		runner = benchmarks.NewBenchmarkRunner(nil)
 	}
+
+	// Set output directory for persisting wiki data
+	runner.OutputDir = c.OutputDir
+	runner.EvalRunner.OutputDir = c.OutputDir
 
 	ctx := context.Background()
 	var results []*benchmarks.BenchmarkResult

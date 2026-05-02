@@ -141,14 +141,15 @@ func sessionNumber(key string) int {
 // Each conversation becomes one scenario: sessions become setup ops and
 // questions become queries. Pass limit ≤ 0 to convert all conversations.
 func ToScenarios(convs []*Conversation, limit int) []*eval.Scenario {
-	if limit > 0 && len(convs) > limit {
-		convs = convs[:limit]
-	}
 	out := make([]*eval.Scenario, 0, len(convs))
 	for _, c := range convs {
 		sc := conversationToScenario(c)
 		if sc != nil {
 			out = append(out, sc)
+			// Stop if we've reached the limit
+			if limit > 0 && len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out

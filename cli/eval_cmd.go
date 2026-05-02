@@ -48,14 +48,8 @@ func (c *EvalCmd) Run(cli *CLI) error {
 
 	runner := eval.NewRunner()
 	if c.RealLLM {
-		if cli.OpenAIKey == "" {
-			return fmt.Errorf("--openai-key is required when --real-llm is set")
-		}
-		adapter, err := llm.NewOpenAIAdapter(&llm.OpenAIConfig{
-			APIKey:  cli.OpenAIKey,
-			Model:   cli.OpenAIModel,
-			BaseURL: cli.OpenAIBaseURL,
-		})
+		llmCfg := cli.getOpenAIConfig()
+		adapter, err := llm.NewOpenAIAdapter(llmCfg)
 		if err != nil {
 			return fmt.Errorf("create OpenAI adapter: %w", err)
 		}

@@ -56,9 +56,6 @@ func NewOpenAIAdapter(cfg *OpenAIConfig) (*OpenAIAdapter, error) {
 	client := openai.NewClient(opts...)
 
 	embModel := cfg.EmbeddingModel
-	if embModel == "" {
-		embModel = "text-embedding-3-small"
-	}
 
 	return &OpenAIAdapter{
 		client:         client,

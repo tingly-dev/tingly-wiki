@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ type Runner struct {
 	// LLM is the language model adapter. If nil, DeterministicMockLLM is used,
 	// which produces stable hash-based embeddings (suitable for CI).
 	LLM llm.LLM
+	// OutputDir is the directory where wiki data will be persisted.
+	// If empty, uses in-memory storage (faster, no disk I/O).
+	OutputDir string
 }
 
 // NewRunner returns a Runner that uses a deterministic mock LLM by default.
@@ -77,13 +81,31 @@ func (r *Runner) buildWiki(sc *Scenario) (*wiki.MemoryWikiImpl, error) {
 		llmAdapter = NewDeterministicMockLLM()
 	}
 
-	cfg := &config.Config{
-		Storage: storage.NewMemoryStorage(),
-		LLM:     llmAdapter,
-		Layout:  config.DefaultLayout(),
+	var store storage.Storage
+
+	// Use disk storage if OutputDir is specified
+	if r.OutputDir != "" {
+		// Create scenario-specific subdirectory
+		scenarioDir := r.OutputDir + "/" + sc.Name
+		if err := os.MkdirAll(scenarioDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create output dir: %w", err)
+		}
+		var err error
+		store, err = storage.NewMarkdownStorage(scenarioDir, config.DefaultLayout())
+		if err != nil {
+			return nil, fmt.Errorf("create markdown storage: %w", err)
+		}
+		fmt.Printf("  📁 Wiki data will be written to: %s\n", scenarioDir)
+	} else {
+		// Use in-memory storage for faster evaluation
+		store = storage.NewMemoryStorage()
 	}
-	if sc.Config.UseVector {
-		cfg.VectorIndex = index.NewMemoryVectorIndex()
+
+	cfg := &config.Config{
+		Storage:     store,
+		LLM:         llmAdapter,
+		Layout:      config.DefaultLayout(),
+		VectorIndex: index.NewMemoryVectorIndex(),
 	}
 
 	opts := []wiki.MemoryWikiOption{
