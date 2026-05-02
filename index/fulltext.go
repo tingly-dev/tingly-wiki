@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -9,11 +10,22 @@ import (
 	"github.com/tingly-dev/tingly-wiki/schema"
 )
 
-// FullTextIndex implements in-memory full-text search
+const (
+	bm25K1 = 1.5
+	bm25B  = 0.75
+)
+
+// FullTextIndex implements in-memory full-text search with BM25 scoring.
 type FullTextIndex struct {
 	mu     sync.RWMutex
 	index  map[string]*IndexedPage // path -> IndexedPage
 	tokens map[string][]string     // token -> paths
+
+	// BM25 state
+	docFreq    map[string]int // token -> number of docs containing it
+	docLengths map[string]int // path -> token count
+	totalDocs  int
+	totalLen   int // sum of all doc lengths (for avgDocLen)
 }
 
 // IndexedPage represents an indexed page with metadata needed for filtering
@@ -31,8 +43,10 @@ type IndexedPage struct {
 // NewFullTextIndex creates a new full-text index
 func NewFullTextIndex() *FullTextIndex {
 	return &FullTextIndex{
-		index:  make(map[string]*IndexedPage),
-		tokens: make(map[string][]string),
+		index:      make(map[string]*IndexedPage),
+		tokens:     make(map[string][]string),
+		docFreq:    make(map[string]int),
+		docLengths: make(map[string]int),
 	}
 }
 
@@ -40,6 +54,11 @@ func NewFullTextIndex() *FullTextIndex {
 func (f *FullTextIndex) Index(ctx context.Context, page *schema.Page) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	// Remove existing entry first (handles upsert)
+	if _, exists := f.index[page.Path]; exists {
+		f.removeLocked(page.Path)
+	}
 
 	// Tokenize content
 	tokens := tokenize(page.Content)
@@ -60,19 +79,25 @@ func (f *FullTextIndex) Index(ctx context.Context, page *schema.Page) error {
 		ExpiresAt:  page.ExpiresAt,
 	}
 
-	// Update token index
+	// Update token inverted index (deduplicated for posting list)
 	tokenSet := make(map[string]bool)
 	for _, token := range tokens {
 		if !tokenSet[token] {
 			f.tokens[token] = append(f.tokens[token], page.Path)
+			f.docFreq[token]++
 			tokenSet[token] = true
 		}
 	}
 
+	// Update BM25 length stats
+	f.docLengths[page.Path] = len(tokens)
+	f.totalDocs++
+	f.totalLen += len(tokens)
+
 	return nil
 }
 
-// Search finds relevant pages
+// Search finds relevant pages using BM25 scoring.
 func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOptions) (*SearchResult, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -81,68 +106,82 @@ func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOp
 		opts = &SearchOptions{}
 	}
 
-	// Tokenize query
 	queryTokens := tokenize(query)
+	if len(queryTokens) == 0 {
+		return &SearchResult{}, nil
+	}
 
-	// Score each page
-	scores := make(map[string]float64)
+	avgDocLen := 1.0
+	if f.totalDocs > 0 {
+		avgDocLen = float64(f.totalLen) / float64(f.totalDocs)
+	}
+
+	// Collect candidate paths from inverted index
+	candidates := make(map[string]struct{})
 	for _, token := range queryTokens {
-		// Find pages containing this token
-		paths, ok := f.tokens[token]
-		if !ok {
-			continue
-		}
-
-		// Boost score for each page containing this token
-		for _, path := range paths {
-			scores[path] += 1.0
+		for _, path := range f.tokens[token] {
+			candidates[path] = struct{}{}
 		}
 	}
 
-	// Convert to results
+	// Score each candidate with BM25
+	scores := make(map[string]float64, len(candidates))
+	for path := range candidates {
+		indexed, ok := f.index[path]
+		if !ok {
+			continue
+		}
+		docLen := float64(f.docLengths[path])
+
+		// Count term frequency per token in this doc
+		tf := termFreq(indexed.Tokens)
+
+		var score float64
+		for _, qt := range queryTokens {
+			tfVal := float64(tf[qt])
+			if tfVal == 0 {
+				continue
+			}
+			df := float64(f.docFreq[qt])
+			N := float64(f.totalDocs)
+			// IDF (Robertson-Sparck Jones, smoothed)
+			idf := math.Log((N-df+0.5)/(df+0.5) + 1)
+			// BM25 tf component
+			tfScore := (tfVal * (bm25K1 + 1)) / (tfVal + bm25K1*(1-bm25B+bm25B*docLen/avgDocLen))
+			score += idf * tfScore
+		}
+		scores[path] = score
+	}
+
+	// Build results with filters
 	var results []SearchResultItem
 	now := time.Now()
 	for path, score := range scores {
-		// Normalize score by query tokens
-		score = score / float64(len(queryTokens))
-
 		indexed, ok := f.index[path]
 		if !ok {
 			continue
 		}
 
-		// MinScore filter
 		if opts.MinScore > 0 && score < opts.MinScore {
 			continue
 		}
-
-		// Type filter
 		if opts.Type != nil && indexed.Type != *opts.Type {
 			continue
 		}
-
-		// TenantID filter
 		if opts.TenantID != "" && indexed.TenantID != opts.TenantID {
 			continue
 		}
-
-		// MinImportance filter
 		if opts.MinImportance > 0 && indexed.Importance < opts.MinImportance {
 			continue
 		}
-
-		// MemoryTier filter
 		if opts.MemoryTier != "" && indexed.MemoryTier != opts.MemoryTier {
 			continue
 		}
-
-		// ExcludeExpired filter
 		if opts.ExcludeExpired && indexed.ExpiresAt != nil && indexed.ExpiresAt.Before(now) {
 			continue
 		}
 
 		excerpt := findExcerpt(indexed.Content, queryTokens)
-
 		results = append(results, SearchResultItem{
 			Page:    &schema.Page{Path: path},
 			Score:   score,
@@ -150,10 +189,8 @@ func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOp
 		})
 	}
 
-	// Sort by score
 	sortResults(results)
 
-	// Apply limit
 	if opts.Limit > 0 && len(results) > opts.Limit {
 		results = results[:opts.Limit]
 	}
@@ -168,14 +205,30 @@ func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOp
 func (f *FullTextIndex) Remove(ctx context.Context, path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.removeLocked(path)
+	return nil
+}
 
-	// Get indexed page
+// removeLocked removes a page; caller must hold write lock.
+func (f *FullTextIndex) removeLocked(path string) {
 	page, ok := f.index[path]
 	if !ok {
-		return nil
+		return
 	}
 
-	// Remove from token index
+	// Update docFreq: only decrement once per unique token
+	seen := make(map[string]bool)
+	for _, token := range page.Tokens {
+		if !seen[token] {
+			f.docFreq[token]--
+			if f.docFreq[token] <= 0 {
+				delete(f.docFreq, token)
+			}
+			seen[token] = true
+		}
+	}
+
+	// Remove from inverted index
 	for _, token := range page.Tokens {
 		paths := f.tokens[token]
 		for i, p := range paths {
@@ -186,26 +239,39 @@ func (f *FullTextIndex) Remove(ctx context.Context, path string) error {
 		}
 	}
 
-	// Remove from page index
+	// Update length stats
+	f.totalLen -= f.docLengths[path]
+	f.totalDocs--
+	delete(f.docLengths, path)
 	delete(f.index, path)
-
-	return nil
 }
 
-// Close closes the index
+// Close resets the index
 func (f *FullTextIndex) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.index = make(map[string]*IndexedPage)
 	f.tokens = make(map[string][]string)
+	f.docFreq = make(map[string]int)
+	f.docLengths = make(map[string]int)
+	f.totalDocs = 0
+	f.totalLen = 0
 	return nil
+}
+
+// termFreq counts occurrences of each token in a token list.
+func termFreq(tokens []string) map[string]int {
+	tf := make(map[string]int, len(tokens))
+	for _, t := range tokens {
+		tf[t]++
+	}
+	return tf
 }
 
 // tokenize splits text into tokens
 func tokenize(text string) []string {
 	text = strings.ToLower(text)
-	// Split on non-alphanumeric
 	tokens := strings.FieldsFunc(text, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
 	})
@@ -214,7 +280,6 @@ func tokenize(text string) []string {
 
 // findExcerpt finds a relevant excerpt from content
 func findExcerpt(content string, queryTokens []string) string {
-	// Simple implementation: find first query token in content
 	for _, token := range queryTokens {
 		idx := strings.Index(content, token)
 		if idx != -1 {
@@ -241,7 +306,6 @@ func findExcerpt(content string, queryTokens []string) string {
 
 // sortResults sorts results by score (descending)
 func sortResults(results []SearchResultItem) {
-	// Simple bubble sort
 	n := len(results)
 	for i := 0; i < n-1; i++ {
 		for j := 0; j < n-i-1; j++ {

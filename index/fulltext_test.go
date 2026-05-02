@@ -42,10 +42,14 @@ func TestFullTextIndex_BasicSearch(t *testing.T) {
 		t.Errorf("expected 3 hits for 'language', got %d", len(res.Results))
 	}
 
-	// Score should be normalized: 1 token query, 1 hit per page = score 1.0
+	// All three pages contain "language" exactly once.
+	// BM25 scores differ slightly due to document length normalization (shorter docs score higher).
+	if len(res.Results) != 3 {
+		t.Errorf("expected 3 hits for 'language', got %d", len(res.Results))
+	}
 	for _, r := range res.Results {
-		if r.Score != 1.0 {
-			t.Errorf("unexpected score for %s: %f", r.Page.Path, r.Score)
+		if r.Score <= 0 {
+			t.Errorf("expected positive BM25 score for %s, got %f", r.Page.Path, r.Score)
 		}
 	}
 }

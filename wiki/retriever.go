@@ -31,7 +31,7 @@ type LayerStrategy struct {
 //   - synthesis:  summaries → vector + importance
 var defaultLayerStrategies = map[schema.PageType]LayerStrategy{
 	schema.PageTypePreference: {VectorWeight: 1.0},
-	schema.PageTypeMemory:     {VectorWeight: 0.5, RecencyWeight: 0.3, ImportanceWeight: 0.2},
+	schema.PageTypeMemory:     {VectorWeight: 0.4, KeywordWeight: 0.3, RecencyWeight: 0.2, ImportanceWeight: 0.1},
 	schema.PageTypeEntity:     {KeywordWeight: 0.7, ImportanceWeight: 0.2, VectorWeight: 0.1},
 	schema.PageTypeConcept:    {VectorWeight: 0.4, KeywordWeight: 0.4, ImportanceWeight: 0.2},
 	schema.PageTypeSynthesis:  {VectorWeight: 0.5, KeywordWeight: 0.3, ImportanceWeight: 0.2},
