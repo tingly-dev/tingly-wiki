@@ -92,6 +92,34 @@ func withValidFacts(page *schema.Page) *schema.Page {
 	return &copy
 }
 
+// factsAsOf returns a shallow copy of page exposing only facts that were valid
+// at asOf. A fact is valid at asOf when:
+//
+//	(EventTime == nil   || *EventTime    <= asOf) &&
+//	(InvalidatedAt == nil || *InvalidatedAt > asOf)
+//
+// EventTime == nil is treated as "always-known": the fact is considered valid
+// from the beginning of time. This matches how StoreMemory writes facts when
+// the LLM does not surface a temporal anchor.
+func factsAsOf(page *schema.Page, asOf time.Time) *schema.Page {
+	if len(page.Facts) == 0 {
+		return page
+	}
+	valid := make([]schema.MemoryFact, 0, len(page.Facts))
+	for _, f := range page.Facts {
+		if f.EventTime != nil && f.EventTime.After(asOf) {
+			continue
+		}
+		if f.InvalidatedAt != nil && !f.InvalidatedAt.After(asOf) {
+			continue
+		}
+		valid = append(valid, f)
+	}
+	copy := *page
+	copy.Facts = valid
+	return &copy
+}
+
 // MemoryWikiImpl wraps WikiImpl and satisfies the MemoryWiki interface.
 // All existing Wiki methods are delegated to the embedded *WikiImpl unchanged.
 type MemoryWikiImpl struct {
@@ -120,17 +148,28 @@ func WithEmbedder(e Embedder) MemoryWikiOption {
 	return func(m *MemoryWikiImpl) { m.embedder = e }
 }
 
-// WithLinkExtractor sets the LinkExtractor used on every StoreMemory call.
+// WithLinkExtractor sets the LinkExtractor used on every StoreMemory call and
+// activates the same extractor on the retriever's entity-linking boost path.
 // Default is NoopLinkExtractor (no automatic link extraction).
 func WithLinkExtractor(le LinkExtractor) MemoryWikiOption {
-	return func(m *MemoryWikiImpl) { m.linkExtractor = le }
+	return func(m *MemoryWikiImpl) {
+		m.linkExtractor = le
+		if m.retriever != nil {
+			m.retriever.SetLinkExtractor(le)
+		}
+	}
 }
 
 // WithVectorIndex sets the vector index, overriding cfg.VectorIndex.
+// Reuses the current LinkExtractor so an earlier WithLinkExtractor option is
+// preserved across retriever rebuilds, regardless of option ordering.
 func WithVectorIndex(vi index.VectorIndex) MemoryWikiOption {
 	return func(m *MemoryWikiImpl) {
 		m.vector = vi
 		m.retriever = NewHybridRetriever(m.WikiImpl.index, vi, m.scorer, m.WikiImpl.llm)
+		if m.linkExtractor != nil {
+			m.retriever.SetLinkExtractor(m.linkExtractor)
+		}
 	}
 }
 
@@ -323,10 +362,18 @@ func (m *MemoryWikiImpl) RecallMemory(ctx context.Context, query string, opts *R
 		full.MemoryTier = m.scorer.Tier(full)
 		_ = m.storage.WritePage(ctx, full)
 
-		// Return a filtered view (without invalidated facts) unless caller asked for history.
-		// withValidFacts returns a shallow copy, so the persisted page keeps its full history.
+		// Return a filtered view of facts.
+		//   - opts.AsOf set:               bi-temporal slice at that instant
+		//   - opts.IncludeInvalidated:     full history (current + superseded)
+		//   - default:                     only currently-valid facts
+		// All three return shallow copies so the persisted page keeps its history.
 		out := full
-		if !opts.IncludeInvalidated {
+		switch {
+		case opts.AsOf != nil:
+			out = factsAsOf(full, *opts.AsOf)
+		case opts.IncludeInvalidated:
+			// nothing — return full page with all facts intact
+		default:
 			out = withValidFacts(full)
 		}
 		pages = append(pages, out)

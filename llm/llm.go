@@ -40,6 +40,46 @@ type LLM interface {
 // ErrEmbeddingNotSupported is returned by LLM adapters that do not support embeddings.
 var ErrEmbeddingNotSupported = fmt.Errorf("embedding not supported by this LLM adapter")
 
+// ErrRerankNotSupported is returned by Rerankers that fail or are not wired.
+var ErrRerankNotSupported = fmt.Errorf("rerank not supported by this LLM adapter")
+
+// Reranker is an optional side-interface that LLM adapters may implement to
+// expose a cross-encoder-style relevance scorer. Callers (e.g. HybridRetriever)
+// type-assert against this interface so adapters that do not implement Rerank
+// remain valid LLMs without a backwards-incompatible interface change.
+//
+// Rerank should return one score in [0, 1] per input doc, in the same order.
+// Higher scores indicate higher relevance to query. Returning an empty slice
+// or len != len(docs) is treated as a failure by HybridRetriever.
+type Reranker interface {
+	Rerank(ctx context.Context, query string, docs []string) ([]float64, error)
+}
+
+// ReflectInput is one source memory passed to Reflector.Reflect. Path is
+// returned untouched on each output Synthesis to support source-tracking.
+type ReflectInput struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// ReflectSynthesis is one new insight produced by a Reflector. Sources are the
+// subset of input paths that contributed to this synthesis.
+type ReflectSynthesis struct {
+	Title   string   `json:"title"`
+	Content string   `json:"content"`
+	Sources []string `json:"sources"`
+}
+
+// Reflector is an optional side-interface that LLM adapters may implement to
+// expose a "deep reflection" operation: synthesise new insights across many
+// stored memories. The MemoryWiki.Reflect operation type-asserts against this
+// interface; adapters that do not implement Reflect simply make Reflect a
+// no-op.
+type Reflector interface {
+	Reflect(ctx context.Context, sources []ReflectInput) ([]ReflectSynthesis, error)
+}
+
 // ConsolidateResult is returned by LLM.Consolidate
 type ConsolidateResult struct {
 	// MergedContent is the unified markdown body
