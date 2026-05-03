@@ -41,6 +41,11 @@ type AssembleOptions struct {
 	// Query, when non-empty, ranks pages by relevance via HybridRetriever.
 	// When empty, pages are sorted by Importance descending, then LastAccessedAt.
 	Query string
+
+	// AsOf, when non-nil, slices each included page's facts to those that were
+	// valid at the given instant (bi-temporal view). Default nil means "now".
+	// See RecallOptions.AsOf for the validity predicate.
+	AsOf *time.Time
 }
 
 // AssembleStats describes what was included in an AssembledContext.
@@ -129,6 +134,15 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, opts *AssembleOptions) 
 	return a.assembleByImportance(ctx, opts, layers, format)
 }
 
+// factsForAssemble returns the facts of p that should appear in assembled
+// output, honoring asOf (bi-temporal slice) when set.
+func factsForAssemble(p *schema.Page, asOf *time.Time) []schema.MemoryFact {
+	if asOf != nil {
+		return factsAsOf(p, *asOf).Facts
+	}
+	return activeFacts(p)
+}
+
 func (a *DefaultAssembler) assembleByImportance(
 	ctx context.Context,
 	opts *AssembleOptions,
@@ -170,7 +184,7 @@ func (a *DefaultAssembler) assembleByImportance(
 		sections = append(sections, assembledSection{pt: pt, pages: valid})
 	}
 
-	return a.renderSections(sections, opts.MaxChars, format)
+	return a.renderSections(sections, opts.MaxChars, format, opts.AsOf)
 }
 
 func (a *DefaultAssembler) assembleWithQuery(
@@ -183,6 +197,7 @@ func (a *DefaultAssembler) assembleWithQuery(
 		Types:    layers,
 		TenantID: opts.TenantID,
 		Limit:    50,
+		AsOf:     opts.AsOf,
 	}, a.storage)
 	if err != nil {
 		return nil, fmt.Errorf("assembler: recall: %w", err)
@@ -197,11 +212,13 @@ func (a *DefaultAssembler) assembleWithQuery(
 		sections = append(sections, assembledSection{pt: pt, pages: byLayer[pt]})
 	}
 
-	return a.renderSections(sections, opts.MaxChars, format)
+	return a.renderSections(sections, opts.MaxChars, format, opts.AsOf)
 }
 
 // renderSections builds the final AssembledContext from ordered sections.
-func (a *DefaultAssembler) renderSections(sections []assembledSection, maxChars int, format AssembleFormat) (*AssembledContext, error) {
+// asOf is forwarded to formatPageItem so bi-temporal queries surface the
+// correct fact slice in the output.
+func (a *DefaultAssembler) renderSections(sections []assembledSection, maxChars int, format AssembleFormat, asOf *time.Time) (*AssembledContext, error) {
 	stats := AssembleStats{LayerBreakdown: make(map[schema.PageType]int)}
 	var citations []string
 	var sb strings.Builder
@@ -218,7 +235,7 @@ func (a *DefaultAssembler) renderSections(sections []assembledSection, maxChars 
 		var itemBuf strings.Builder
 		count := 0
 		for _, p := range sec.pages {
-			item := formatPageItem(p, sec.pt)
+			item := formatPageItem(p, sec.pt, asOf)
 			needed := sb.Len() + itemBuf.Len() + len(header) + 2 + len(item) + 1
 			if maxChars > 0 && needed > maxChars {
 				stats.PagesSkipped++
@@ -248,14 +265,15 @@ func (a *DefaultAssembler) renderSections(sections []assembledSection, maxChars 
 	return &AssembledContext{Text: text, Citations: citations, Stats: stats}, nil
 }
 
-// formatPageItem renders a single page as a markdown bullet.
-func formatPageItem(p *schema.Page, pt schema.PageType) string {
+// formatPageItem renders a single page as a markdown bullet. When asOf is
+// non-nil the rendered fact list is the bi-temporal slice at that instant.
+func formatPageItem(p *schema.Page, pt schema.PageType, asOf *time.Time) string {
 	var sb strings.Builder
 	sb.WriteString("- **")
 	sb.WriteString(p.Title)
 	sb.WriteString("**")
 
-	facts := activeFacts(p)
+	facts := factsForAssemble(p, asOf)
 	if len(facts) > 0 {
 		sb.WriteString(": ")
 		for i, f := range facts {

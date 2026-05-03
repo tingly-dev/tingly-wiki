@@ -31,6 +31,16 @@ type MockLLM struct {
 
 	// RateImportanceFunc is the mock importance rating function
 	RateImportanceFunc func(ctx context.Context, content string) (float64, error)
+
+	// RerankFunc is the mock rerank function. When nil, MockLLM returns an
+	// identity ranking (all docs scored 0.5) so tests opting into rerank get
+	// deterministic behaviour without specifying a function.
+	RerankFunc func(ctx context.Context, query string, docs []string) ([]float64, error)
+
+	// ReflectFunc is the mock reflect function. When nil, MockLLM returns a
+	// trivial single-synthesis stub so tests opting into Reflect have a
+	// defined output without a custom function.
+	ReflectFunc func(ctx context.Context, sources []ReflectInput) ([]ReflectSynthesis, error)
 }
 
 // NewMockLLM creates a new mock LLM with default behavior
@@ -152,4 +162,37 @@ func (m *MockLLM) RateImportance(ctx context.Context, content string) (float64, 
 		return m.RateImportanceFunc(ctx, content)
 	}
 	return 0.5, nil
+}
+
+// Rerank calls the mock rerank function. When unset, returns identical 0.5
+// scores so any opt-in caller gets a defined-but-tie-breaking output.
+func (m *MockLLM) Rerank(ctx context.Context, query string, docs []string) ([]float64, error) {
+	if m.RerankFunc != nil {
+		return m.RerankFunc(ctx, query, docs)
+	}
+	out := make([]float64, len(docs))
+	for i := range out {
+		out[i] = 0.5
+	}
+	return out, nil
+}
+
+// Reflect calls the mock reflect function. When unset, returns a single
+// synthesis aggregating every source path so callers can verify wiring.
+func (m *MockLLM) Reflect(ctx context.Context, sources []ReflectInput) ([]ReflectSynthesis, error) {
+	if m.ReflectFunc != nil {
+		return m.ReflectFunc(ctx, sources)
+	}
+	if len(sources) == 0 {
+		return nil, nil
+	}
+	paths := make([]string, len(sources))
+	for i, s := range sources {
+		paths[i] = s.Path
+	}
+	return []ReflectSynthesis{{
+		Title:   "Mock Synthesis",
+		Content: "Aggregate of " + sources[0].Title,
+		Sources: paths,
+	}}, nil
 }

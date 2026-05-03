@@ -170,9 +170,28 @@ type RecallOptions struct {
 	// Default false = only current (valid) facts are visible.
 	IncludeInvalidated bool
 
+	// AsOf, when non-nil, performs a bi-temporal query: each fact is included
+	// only if it was valid at the given instant — that is, both
+	//   (EventTime == nil || *EventTime <= *AsOf)
+	// and
+	//   (InvalidatedAt == nil || *InvalidatedAt > *AsOf)
+	// hold. AsOf takes precedence over IncludeInvalidated. Default nil means
+	// "now" semantics (only currently-valid facts).
+	AsOf *time.Time
+
 	// Strategies overrides the per-layer retrieval weight coefficients.
 	// Keys are PageType constants; absent types fall back to defaults.
 	Strategies map[schema.PageType]LayerStrategy
+
+	// Rerank, when true, asks the retriever to invoke an LLM-side Reranker
+	// (cross-encoder style) on the top-N RRF-scored candidates. Has no effect
+	// when the configured LLM does not implement llm.Reranker; failures are
+	// silently swallowed and the original RRF order is preserved.
+	Rerank bool
+
+	// RerankCandidates caps the number of top-RRF candidates sent to the
+	// reranker. 0 uses the default (20). Larger values cost more LLM tokens.
+	RerankCandidates int
 }
 
 // RecallResult is returned by RecallMemory
@@ -271,4 +290,10 @@ type MemoryWiki interface {
 	// This is the "last-mile" method: the caller receives Text and decides
 	// where and when to inject it (system prompt, tool result, etc.).
 	AssembleContext(ctx context.Context, opts *AssembleOptions) (*AssembledContext, error)
+
+	// Reflect surveys stored memories and asks the LLM (when it implements
+	// llm.Reflector) to surface new PageTypeSynthesis insights whose Sources
+	// field links back to contributing inputs. No-op when the LLM does not
+	// implement Reflector.
+	Reflect(ctx context.Context, opts *ReflectOptions) (*ReflectResult, error)
 }
