@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tingly-dev/tingly-wiki/schema"
 )
@@ -17,9 +18,10 @@ const (
 
 // FullTextIndex implements in-memory full-text search with BM25 scoring.
 type FullTextIndex struct {
-	mu     sync.RWMutex
-	index  map[string]*IndexedPage // path -> IndexedPage
-	tokens map[string][]string     // token -> paths
+	mu        sync.RWMutex
+	tokenizer Tokenizer
+	index     map[string]*IndexedPage // path -> IndexedPage
+	tokens    map[string][]string     // token -> paths
 
 	// BM25 state
 	docFreq    map[string]int // token -> number of docs containing it
@@ -40,9 +42,22 @@ type IndexedPage struct {
 	ExpiresAt  *time.Time
 }
 
-// NewFullTextIndex creates a new full-text index
+// NewFullTextIndex creates a new full-text index with the default tokenizer
+// (CJK-aware, see MixedScriptTokenizer).
 func NewFullTextIndex() *FullTextIndex {
+	return NewFullTextIndexWithTokenizer(DefaultTokenizer())
+}
+
+// NewFullTextIndexWithTokenizer creates a full-text index that uses the
+// provided Tokenizer for both indexing and querying. Pass a custom
+// implementation to support dictionary-based segmentation, language-specific
+// stemming, or other strategies. A nil tokenizer falls back to the default.
+func NewFullTextIndexWithTokenizer(t Tokenizer) *FullTextIndex {
+	if t == nil {
+		t = DefaultTokenizer()
+	}
 	return &FullTextIndex{
+		tokenizer:  t,
 		index:      make(map[string]*IndexedPage),
 		tokens:     make(map[string][]string),
 		docFreq:    make(map[string]int),
@@ -61,10 +76,10 @@ func (f *FullTextIndex) Index(ctx context.Context, page *schema.Page) error {
 	}
 
 	// Tokenize content
-	tokens := tokenize(page.Content)
-	tokens = append(tokens, tokenize(page.Title)...)
+	tokens := f.tokenizer.Tokenize(page.Content)
+	tokens = append(tokens, f.tokenizer.Tokenize(page.Title)...)
 	for _, tag := range page.Tags {
-		tokens = append(tokens, tokenize(tag)...)
+		tokens = append(tokens, f.tokenizer.Tokenize(tag)...)
 	}
 
 	// Store indexed page with metadata needed for filtering
@@ -106,7 +121,7 @@ func (f *FullTextIndex) Search(ctx context.Context, query string, opts *SearchOp
 		opts = &SearchOptions{}
 	}
 
-	queryTokens := tokenize(query)
+	queryTokens := f.tokenizer.Tokenize(query)
 	if len(queryTokens) == 0 {
 		return &SearchResult{}, nil
 	}
@@ -269,39 +284,42 @@ func termFreq(tokens []string) map[string]int {
 	return tf
 }
 
-// tokenize splits text into tokens
-func tokenize(text string) []string {
-	text = strings.ToLower(text)
-	tokens := strings.FieldsFunc(text, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
-	})
-	return tokens
-}
-
-// findExcerpt finds a relevant excerpt from content
+// findExcerpt finds a relevant excerpt from content. Window boundaries are
+// snapped to UTF-8 rune starts so that multi-byte characters (e.g. CJK) are
+// never sliced mid-character.
 func findExcerpt(content string, queryTokens []string) string {
 	for _, token := range queryTokens {
 		idx := strings.Index(content, token)
-		if idx != -1 {
-			start := idx - 50
-			if start < 0 {
-				start = 0
-			}
-			end := idx + 50
-			if end > len(content) {
-				end = len(content)
-			}
-			excerpt := content[start:end]
-			if start > 0 {
-				excerpt = "..." + excerpt
-			}
-			if end < len(content) {
-				excerpt = excerpt + "..."
-			}
-			return excerpt
+		if idx == -1 {
+			continue
 		}
+		start := alignRuneStart(content, idx-50)
+		end := alignRuneStart(content, idx+50)
+		excerpt := content[start:end]
+		if start > 0 {
+			excerpt = "..." + excerpt
+		}
+		if end < len(content) {
+			excerpt = excerpt + "..."
+		}
+		return excerpt
 	}
 	return ""
+}
+
+// alignRuneStart clamps i to [0, len(s)] and walks it forward (if needed) so
+// it lands on a UTF-8 rune boundary.
+func alignRuneStart(s string, i int) int {
+	if i <= 0 {
+		return 0
+	}
+	if i >= len(s) {
+		return len(s)
+	}
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return i
 }
 
 // sortResults sorts results by score (descending)
