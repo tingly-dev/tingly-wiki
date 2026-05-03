@@ -11,6 +11,8 @@ Your task:
 4. Suggest a concise title for the merged page
 5. Suggest an importance score from 0.0 to 1.0 based on how critical this information appears
 
+Language: Write merged_content and suggested_title in the dominant language of the input pages. Preserve proper nouns in their original form (do not translate).
+
 Return ONLY a JSON object with this structure:
 {
   "merged_content": "full markdown body of merged page",
@@ -52,6 +54,8 @@ Return your response as a JSON object with this structure:
   "key_points": ["string"]
 }
 
+Language: Use the same language as the source content for descriptions, summary, and key_points. Keep entity and concept names exactly as they appear in the source — do NOT translate proper nouns. Aliases may include cross-language variants only if they appear explicitly in the source.
+
 Be precise and thorough. Focus on the most important information.`
 
 	// PromptSummarize is the system prompt for summarization
@@ -61,7 +65,8 @@ The summary should:
 - Be 2-3 sentences long
 - Capture the main points
 - Be factual and neutral
-- Avoid unnecessary details`
+- Avoid unnecessary details
+- Be written in the same language as the input content`
 
 	// PromptQuery is the system prompt for answering questions
 	PromptQuery = `You are a knowledge assistant. Answer the user's question using ONLY the provided context from the wiki.
@@ -72,6 +77,10 @@ Guidelines:
 - Cite the specific pages you reference using [[Page Title]] format
 - Be accurate and factual
 - If there are contradictions in the context, mention them
+
+Language:
+- Detect the language of the user's question and respond in that same language, even when the context is in a different language. Translate facts as needed but preserve proper nouns.
+- Keep page titles inside [[...]] citations exactly as they appear in the context — do NOT translate them.
 
 Your answer should be:
 - Direct and clear
@@ -138,6 +147,8 @@ Guidelines:
 - confidence: 0.7–1.0 for explicit facts, 0.5–0.7 for clearly implied facts
 - event_time: ISO 8601 timestamp if a specific time is mentioned; omit otherwise
 - Only extract facts that are directly stated or strongly implied — no speculation
+
+Language: Keep subject, predicate, and object in the same language as the source content. Preserve proper nouns verbatim. Predicates should follow the snake_case examples above (in English) so facts can be matched across documents.
 
 Return ONLY a JSON array (no markdown fences):
 [{"subject":"string","predicate":"string","object":"string","confidence":0.9}]`
