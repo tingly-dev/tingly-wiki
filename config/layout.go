@@ -1,6 +1,14 @@
 package config
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
+
+// maxFilenameRunes caps the rune length of a sanitized filename so paths stay
+// within filesystem NAME_MAX limits (255 bytes on most systems; one CJK rune
+// can encode to 3-4 bytes).
+const maxFilenameRunes = 80
 
 // LayoutConfig defines the directory structure of the wiki
 type LayoutConfig struct {
@@ -104,23 +112,39 @@ func (l *LayoutConfig) GetProcedurePath(name string) string {
 	return l.ProceduresDir + sanitizeName(name) + ".md"
 }
 
-// sanitizeName converts a name to a safe filename
+// sanitizeName converts a name to a safe filename. ASCII letters are
+// lowercased and Unicode letters/digits (Han, Hiragana, Cyrillic, Greek, etc.)
+// are preserved so non-English entity and concept pages keep meaningful
+// filenames. Path-unsafe characters (separators, control bytes, reserved
+// Windows characters) are replaced with hyphens.
 func sanitizeName(name string) string {
-	// Convert to lowercase
-	name = strings.ToLower(name)
-	// Replace spaces and special chars with hyphens
-	name = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			return r
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case unicode.IsLetter(r):
+			b.WriteRune(unicode.ToLower(r))
+		case unicode.IsDigit(r):
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			// Whitespace, punctuation, path separators, and reserved chars
+			// (/, \, :, *, ?, ", <, >, |) all collapse to a hyphen.
+			b.WriteRune('-')
 		}
-		return '-'
-	}, name)
-	// Collapse multiple hyphens
-	name = replaceAllSequential(name, "--", "-")
-	name = replaceAllSequential(name, "--", "-") // Twice to catch triples
-	// Trim leading/trailing hyphens
-	name = strings.Trim(name, "-")
-	return name
+	}
+	out := b.String()
+
+	out = replaceAllSequential(out, "--", "-")
+	out = replaceAllSequential(out, "--", "-") // catch triples
+	out = strings.Trim(out, "-_")
+
+	// Cap rune length to stay safely under NAME_MAX on common filesystems.
+	if runes := []rune(out); len(runes) > maxFilenameRunes {
+		out = strings.TrimRight(string(runes[:maxFilenameRunes]), "-_")
+	}
+	return out
 }
 
 // replaceAllSequential replaces all occurrences (Go 1.21 compatibility)
