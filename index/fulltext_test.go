@@ -161,6 +161,75 @@ func TestFullTextIndex_RemoveAndReindex(t *testing.T) {
 	}
 }
 
+func TestFullTextIndex_ChineseSearch(t *testing.T) {
+	idx := NewFullTextIndex()
+	ctx := context.Background()
+
+	pages := []*schema.Page{
+		mkPage("dl.md", "深度学习", "深度学习是机器学习的一个分支", schema.PageTypeConcept),
+		mkPage("ml.md", "机器学习", "机器学习研究计算机如何从数据中学习", schema.PageTypeConcept),
+		mkPage("rust.md", "Rust", "Rust is a memory-safe systems language", schema.PageTypeConcept),
+	}
+	for _, p := range pages {
+		if err := idx.Index(ctx, p); err != nil {
+			t.Fatalf("index failed: %v", err)
+		}
+	}
+
+	res, err := idx.Search(ctx, "深度学习", &SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(res.Results) == 0 {
+		t.Fatalf("expected hits for 中文 query, got 0")
+	}
+	if res.Results[0].Page.Path != "dl.md" {
+		t.Errorf("expected dl.md ranked first, got %s", res.Results[0].Page.Path)
+	}
+
+	// Cross-script: "学习" appears in two pages.
+	res, _ = idx.Search(ctx, "学习", &SearchOptions{Limit: 10})
+	if len(res.Results) < 2 {
+		t.Errorf("expected ≥2 hits for 学习, got %d", len(res.Results))
+	}
+
+	// Excerpt must be valid UTF-8 (no mid-character splits).
+	for _, r := range res.Results {
+		if r.Excerpt != "" && !isValidUTF8(r.Excerpt) {
+			t.Errorf("excerpt corrupted: %q", r.Excerpt)
+		}
+	}
+}
+
+func TestFullTextIndex_MixedScriptSearch(t *testing.T) {
+	idx := NewFullTextIndex()
+	ctx := context.Background()
+
+	_ = idx.Index(ctx, mkPage("openai.md", "OpenAI公司", "OpenAI公司发布了GPT-4模型", schema.PageTypeEntity))
+	_ = idx.Index(ctx, mkPage("anthropic.md", "Anthropic", "Anthropic builds Claude", schema.PageTypeEntity))
+
+	// English query against mixed content.
+	res, _ := idx.Search(ctx, "openai", &SearchOptions{Limit: 10})
+	if len(res.Results) != 1 || res.Results[0].Page.Path != "openai.md" {
+		t.Errorf("English query failed: %v", res.Results)
+	}
+
+	// Chinese query against the same page.
+	res, _ = idx.Search(ctx, "公司", &SearchOptions{Limit: 10})
+	if len(res.Results) != 1 || res.Results[0].Page.Path != "openai.md" {
+		t.Errorf("Chinese query failed: %v", res.Results)
+	}
+}
+
+func isValidUTF8(s string) bool {
+	for _, r := range s {
+		if r == '�' {
+			return false
+		}
+	}
+	return true
+}
+
 func TestFullTextIndex_TitleAndTagsTokenized(t *testing.T) {
 	idx := NewFullTextIndex()
 	ctx := context.Background()
