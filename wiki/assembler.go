@@ -269,10 +269,7 @@ func formatPageItem(p *schema.Page, pt schema.PageType) string {
 			sb.WriteString(f.Object)
 		}
 	} else if p.Content != "" {
-		excerpt := p.Content
-		if len(excerpt) > 120 {
-			excerpt = excerpt[:120] + "…"
-		}
+		excerpt := truncateStr(p.Content, 120)
 		sb.WriteString(": ")
 		sb.WriteString(strings.ReplaceAll(excerpt, "\n", " "))
 	}
@@ -309,9 +306,13 @@ func sectionsToJSON(sections []assembledSection) string {
 	return "[" + strings.Join(items, ",") + "]"
 }
 
+// truncateStr truncates s to at most n runes, appending an ellipsis when the
+// input was shortened. Counting in runes keeps multi-byte characters (e.g.
+// CJK) from being sliced mid-character.
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(runes[:n]) + "…"
 }
